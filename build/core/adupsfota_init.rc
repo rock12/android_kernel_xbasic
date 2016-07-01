@@ -1,0 +1,7 @@
+
+#adupsfota start
+service fotabinder /system/bin/fotabinder
+    class main
+    socket fotabinder stream 660 system system
+#adupsfota end
+

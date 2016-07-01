@@ -1,0 +1,172 @@
+/*****************************************************************************
+*  Copyright Statement:
+*  --------------------
+*  This software is protected by Copyright and the information contained
+*  herein is confidential. The software may not be copied and the information
+*  contained herein may not be used or disclosed except with the written
+*  permission of MediaTek Inc. (C) 2008
+*
+*  BY OPENING THIS FILE, BUYER HEREBY UNEQUIVOCALLY ACKNOWLEDGES AND AGREES
+*  THAT THE SOFTWARE/FIRMWARE AND ITS DOCUMENTATIONS ("MEDIATEK SOFTWARE")
+*  RECEIVED FROM MEDIATEK AND/OR ITS REPRESENTATIVES ARE PROVIDED TO BUYER ON
+*  AN "AS-IS" BASIS ONLY. MEDIATEK EXPRESSLY DISCLAIMS ANY AND ALL WARRANTIES,
+*  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE IMPLIED WARRANTIES OF
+*  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE OR NONINFRINGEMENT.
+*  NEITHER DOES MEDIATEK PROVIDE ANY WARRANTY WHATSOEVER WITH RESPECT TO THE
+*  SOFTWARE OF ANY THIRD PARTY WHICH MAY BE USED BY, INCORPORATED IN, OR
+*  SUPPLIED WITH THE MEDIATEK SOFTWARE, AND BUYER AGREES TO LOOK ONLY TO SUCH
+*  THIRD PARTY FOR ANY WARRANTY CLAIM RELATING THERETO. MEDIATEK SHALL ALSO
+*  NOT BE RESPONSIBLE FOR ANY MEDIATEK SOFTWARE RELEASES MADE TO BUYER'S
+*  SPECIFICATION OR TO CONFORM TO A PARTICULAR STANDARD OR OPEN FORUM.
+*
+*  BUYER'S SOLE AND EXCLUSIVE REMEDY AND MEDIATEK'S ENTIRE AND CUMULATIVE
+*  LIABILITY WITH RESPECT TO THE MEDIATEK SOFTWARE RELEASED HEREUNDER WILL BE,
+*  AT MEDIATEK'S OPTION, TO REVISE OR REPLACE THE MEDIATEK SOFTWARE AT ISSUE,
+*  OR REFUND ANY SOFTWARE LICENSE FEES OR SERVICE CHARGE PAID BY BUYER TO
+*  MEDIATEK FOR SUCH MEDIATEK SOFTWARE AT ISSUE.
+*
+*  THE TRANSACTION CONTEMPLATED HEREUNDER SHALL BE CONSTRUED IN ACCORDANCE
+*  WITH THE LAWS OF THE STATE OF CALIFORNIA, USA, EXCLUDING ITS CONFLICT OF
+*  LAWS PRINCIPLES.  ANY DISPUTES, CONTROVERSIES OR CLAIMS ARISING THEREOF AND
+*  RELATED THERETO SHALL BE SETTLED BY ARBITRATION IN SAN FRANCISCO, CA, UNDER
+*  THE RULES OF THE INTERNATIONAL CHAMBER OF COMMERCE (ICC).
+*
+*****************************************************************************/
+/*****************************************************************************
+ *
+ * Filename:
+ * ---------
+ *   sensor.h
+ *
+ * Project:
+ * --------
+ *   DUMA
+ *
+ * Description:
+ * ------------
+ *   Header file of Sensor driver
+ *
+ *
+ * Author:
+
+ *============================================================================
+ ****************************************************************************/
+/* SENSOR FULL SIZE */
+#ifndef __SENSOR_H
+#define __SENSOR_H
+
+typedef enum _AR2030_OP_TYPE_ {
+        AR2030_MODE_NONE,
+        AR2030_MODE_PREVIEW,
+        AR2030_MODE_CAPTURE,
+        AR2030_MODE_QCIF_VIDEO,
+        AR2030_MODE_CIF_VIDEO,
+        AR2030_MODE_QVGA_VIDEO
+    } AR2030_OP_TYPE;
+
+extern AR2030_OP_TYPE AR2030_g_iAR2030_Mode;
+
+#define DRV_ISP_YUV_BURST_MODE_SUPPORT
+#define AR2030_DEBUG_ANDROID
+
+/* SENSOR FULL/PV SIZE */
+#define AR2030_IMAGE_SENSOR_FULL_WIDTH_DRV   1600
+#define AR2030_IMAGE_SENSOR_FULL_HEIGHT_DRV  1200
+#define AR2030_IMAGE_SENSOR_PV_WIDTH_DRV     (800-16)
+#define AR2030_IMAGE_SENSOR_PV_HEIGHT_DRV    (600-12)
+
+/* SENSOR HORIZONTAL/VERTICAL ACTIVE REGION */
+#define AR2030_IMAGE_SENSOR_FULL_HACTIVE     AR2030_IMAGE_SENSOR_FULL_WIDTH_DRV /* 1600 */
+#define AR2030_IMAGE_SENSOR_FULL_VACTIVE     AR2030_IMAGE_SENSOR_FULL_HEIGHT_DRV /* 1200 */
+#define AR2030_IMAGE_SENSOR_PV_HACTIVE       AR2030_IMAGE_SENSOR_PV_WIDTH_DRV /* 800 */
+#define AR2030_IMAGE_SENSOR_PV_VACTIVE       AR2030_IMAGE_SENSOR_PV_HEIGHT_DRV /* 600 */
+
+/* SENSOR HORIZONTAL/VERTICAL BLANKING IN ONE PERIOD */
+#if (defined(DRV_ISP_YUV_BURST_MODE_SUPPORT))
+#define AR2030_IMAGE_SENSOR_FULL_HBLANKING   634 /* MT6253 capture frame rate limit to 9fps */
+#else
+#define AR2030_IMAGE_SENSOR_FULL_HBLANKING   380
+#endif
+#define AR2030_IMAGE_SENSOR_FULL_VBLANKING   93
+#define AR2030_IMAGE_SENSOR_PV_HBLANKING     550
+#define AR2030_IMAGE_SENSOR_PV_VBLANKING     91
+
+/* SENSOR PIXEL/LINE NUMBERS IN ONE PERIOD */
+#define AR2030_FULL_PERIOD_PIXEL_NUMS        (AR2030_IMAGE_SENSOR_FULL_HACTIVE + AR2030_IMAGE_SENSOR_FULL_HBLANKING) /* 53: 2234, other: 1980 */
+#define AR2030_FULL_PERIOD_LINE_NUMS         (AR2030_IMAGE_SENSOR_FULL_VACTIVE + AR2030_IMAGE_SENSOR_FULL_VBLANKING) /* 1293 */
+#define AR2030_PV_PERIOD_PIXEL_NUMS          (AR2030_IMAGE_SENSOR_PV_HACTIVE + AR2030_IMAGE_SENSOR_PV_HBLANKING) /* 1350 */
+#define AR2030_PV_PERIOD_LINE_NUMS           (AR2030_IMAGE_SENSOR_PV_VACTIVE + AR2030_IMAGE_SENSOR_PV_VBLANKING) /* 691 */
+
+/* SENSOR START/END POSITION */
+#define AR2030_FULL_X_START                  8
+#define AR2030_FULL_Y_START                  6
+#define AR2030_IMAGE_SENSOR_FULL_WIDTH       (AR2030_IMAGE_SENSOR_FULL_HACTIVE - AR2030_FULL_X_START * 2) /* 1584 */
+#define AR2030_IMAGE_SENSOR_FULL_HEIGHT      (AR2030_IMAGE_SENSOR_FULL_VACTIVE - AR2030_FULL_Y_START * 2) /* 1188 */
+#define AR2030_PV_X_START                    (AR2030_FULL_X_START / 2) /* 4 */
+#define AR2030_PV_Y_START                    (AR2030_FULL_Y_START / 2) /* 3 */
+#define AR2030_IMAGE_SENSOR_PV_WIDTH         (AR2030_IMAGE_SENSOR_PV_HACTIVE - AR2030_PV_X_START * 2) /* 792 */
+#define AR2030_IMAGE_SENSOR_PV_HEIGHT        (AR2030_IMAGE_SENSOR_PV_VACTIVE - AR2030_PV_Y_START * 2) /* 594 */
+
+
+/* AE TARGET ZERO when EV = 0. MUST BE > 40 !!! */
+#define AR2030_AE_TARGET_ZERO                60
+
+/* ANALOG GAIN BASE */
+#define AR2030_ANALOG_GAIN_BASE              0x10 /* 1x: reg / 0x10 */
+
+/* LIMIT OF ANALOG GAIN: if too large will cause yellow frame!!! */
+#define AR2030_MAX_ANALOG_GAIN               (AR2030_ANALOG_GAIN_BASE * 10)
+
+/* 50HZ/60HZ */
+#define AR2030_NUM_50HZ                      50
+#define AR2030_NUM_60HZ                      60
+
+/* SENSOR READ/WRITE ID */
+#define AR2030_SLV1_WRITE_ID                 0x78
+#define AR2030_SLV1_READ_ID                  0x79
+#define AR2030_SLV2_WRITE_ID                 0x7A
+#define AR2030_SLV2_READ_ID                  0x7B
+
+#define AR2030_SENSOR_ID                       0x2580
+
+
+struct AR2030_sensor_STRUCT
+{
+  kal_uint32 banding;
+  kal_uint32 effect;
+  kal_uint32 exposure;
+  kal_uint32 wb;
+  kal_uint8 mirror;
+  kal_bool night_mode;
+  kal_bool video_frame;
+  kal_bool pv_mode;
+  kal_bool video_mode;
+  kal_bool initial;
+  kal_bool first_pv;
+  kal_uint16 normal_fps; /* normal mode min fps */
+  kal_uint16 night_fps; /* night mode min fps */
+#ifndef AR2030_HW_SCCB
+  kal_uint8 write_id;
+  kal_uint8 read_id;
+#endif
+  kal_uint32 pclk;
+  kal_uint16 shutter;
+  kal_uint16 pv_frame_height;
+  kal_uint16 pv_line_length;
+  kal_uint16 cap_frame_height;
+  kal_uint16 cap_line_length;
+};
+extern 	struct AR2030_sensor_STRUCT AR2030_sensor;
+/* FRAME RATE UNIT */
+#define AR2030_FRAME_RATE_UNIT               10
+
+//export functions
+UINT32 AR2030Open(void);
+UINT32 AR2030GetResolution(MSDK_SENSOR_RESOLUTION_INFO_STRUCT *pSensorResolution);
+UINT32 AR2030GetInfo(MSDK_SCENARIO_ID_ENUM ScenarioId, MSDK_SENSOR_INFO_STRUCT *pSensorInfo, MSDK_SENSOR_CONFIG_STRUCT *pSensorConfigData);
+UINT32 AR2030Control(MSDK_SCENARIO_ID_ENUM ScenarioId, MSDK_SENSOR_EXPOSURE_WINDOW_STRUCT *pImageWindow, MSDK_SENSOR_CONFIG_STRUCT *pSensorConfigData);
+UINT32 AR2030FeatureControl(MSDK_SENSOR_FEATURE_ENUM FeatureId, UINT8 *pFeaturePara,UINT32 *pFeatureParaLen);
+UINT32 AR2030Close(void);
+
+#endif /* __SENSOR_H */
+

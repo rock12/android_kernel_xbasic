@@ -1,0 +1,8 @@
+
+对应BIRD72_JB3_V1\alps\mediatek\custom\common\modem\bird72_wet_a_jb3_gprs_13C45
+
+对应的工程是13E27_EDGE
+
+ 新编译是因为许柳的CTA项目，紧急拨号问题，沈智旺修改了文件custom_ecc.c
+
+为了不做差异化处理，把服务器上的一起改掉了。非CTA软件一起使用该modem

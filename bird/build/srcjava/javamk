@@ -1,0 +1,20 @@
+function=no
+if [[ $function == "yes" ]]; then
+	cd bird/build/srcjava/
+	name=$1
+	value=$2
+	echo $name=$value >> BIRD_FRAMEWORK_WALLAPERS.txt
+	if [[ $name == BIRD_FRAMEWORK_WALLAPERS ]]; then
+		if [[ $value == $name ]]; then
+			echo $MAKEFILE_COMPILE_VAR not define  >> BIRD_FRAMEWORK_WALLAPERS.txt
+		else
+			echo compile FrameworkWallaperHandler.java and run  >> BIRD_FRAMEWORK_WALLAPERS.txt
+			javac -Djava.ext.dirs=lib bird/BirdEnvironment.java 
+			javac -Djava.ext.dirs=lib bird/FileValidate.java 
+			javac -Djava.ext.dirs=lib bird/wallpaper/CopyFile.java 
+			javac -Djava.ext.dirs=lib bird/wallpaper/FrameworkWallaperHandler.java 
+			java -Djava.ext.dirs=lib  bird.wallpaper.FrameworkWallaperHandler $value
+		fi
+	fi
+	cd ../../../
+fi

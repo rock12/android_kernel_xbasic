@@ -1,0 +1,3470 @@
+# !/bin/bash
+ForcePreCheck=1   # force check flash config
+############################### Make Command ########################################
+# jiali modified 2013/02/26 because PROJECT_NAME maybe empty when invoke makesys and mmm
+function getProjectName
+{
+	MAKEFILE_NAME=bird/make/$1.mak
+	MAKEFILE_COMPILE_VAR=MTK_PLATFORM
+	chmod 755 ./get_string
+	outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+    echo platform $outbuf
+	if [[ $outbuf = MT6589 ]]; then
+		PROJECT_NAME=bird89_wet_a_jb2
+	elif [[ $outbuf = MT6577 ]]; then
+		PROJECT_NAME=bird89_wet_a_jb2
+    elif [[ $outbuf = MT6572 ]]; then
+		PROJECT_NAME=a101
+	else
+		PROJECT_NAME=
+	fi
+}
+getProjectName $1
+if [[ -z $PROJECT_NAME ]]; then
+	getProjectName `head -1 bird/tool/lastbuildproj.txt`
+fi
+while [[ -z $PROJECT_NAME ]]; do
+	read -p "Enter your last built ProjectName: " lastbuiltproj
+	if [ -e bird/make/$lastbuiltproj.mak ]; then
+		getProjectName $lastbuiltproj
+		if [[ -n $PROJECT_NAME ]]; then
+			echo $lastbuiltproj > bird/tool/lastbuildproj.txt # record last built project name
+		fi
+	else
+		echo Not exist bird/make/$lastbuiltproj.mak!
+	fi 
+done
+echo ================================Log==================================
+echo project name : $PROJECT_NAME
+# rom encrypt apks,chengting,@20130712,begin
+function compileapklist
+{
+echo -------------------------------renovate guard apks begin-------------------------------
+MAKEFILE_COMPILE_VAR_APKS_ENCRYPT=BIRD_ROM_ENCRYPT_APKS
+romencryptapks=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR_APKS_ENCRYPT)
+listoutpath=bird/renovateguard_apk_list/out
+sysoutpath=out/target/product/$PROJECT_NAME/system
+if [ -e $listoutpath ];then
+rm -rf $listoutpath
+fi
+if [ -e $sysoutpath/apk_notice.txt ];then
+rm -rf $sysoutpath/apk_notice.txt
+fi
+if [ -e $sysoutpath/gate/ ];then
+rm -rf $sysoutpath/gate/
+fi
+echo Current project:$MAKEFILE_NAME
+if [[ $romencryptapks == yes ]];then
+   echo FYI : BIRD_ROM_ENCRYPT_APKS=yes,renovare guard will be used!!
+   mkdir $listoutpath
+   
+   VAR_LIST_NAME=BIRD_ROM_ENCRYPT_APKS_LIST
+   listfilename=$(./get_string $MAKEFILE_NAME $VAR_LIST_NAME)
+   listfilepath=bird/renovateguard_apk_list/$listfilename.txt
+   if [[ -e $listfilepath ]];then
+      echo Using $listfilepath
+      cp -rf $listfilepath $listoutpath/apk_fullpath_list.txt
+   else
+      echo $listfilepath not exist!!
+      exit
+   fi
+   chmod 755 ./bird_compile_apk
+   echo Follow apks will be protected:
+   ./bird_compile_apk
+   if [ -e $sysoutpath ];then
+      if [ ! -e $sysoutpath/gate ];then
+         mkdir out/target/product/$PROJECT_NAME/system/gate
+      fi
+      cp -rf $listoutpath/apk_notice.txt $sysoutpath/apk_notice.txt
+      cp -rf $listoutpath/apk_compile_info $sysoutpath/gate/apk_compile_info
+      echo you may want to check:
+      echo out/target/product/$PROJECT_NAME/system/apk_notice.txt
+      echo out/target/product/$PROJECT_NAME/system/gate/apk_compile_info
+   else
+      echo ----error----out/target/product/$PROJECT_NAME/system not exist!!You may need remake 
+   fi
+else
+   echo FYI : BIRD_ROM_ENCRYPT_APKS=no,will not use renovare guard !! 
+fi
+echo -------------------------------renovate guard apks end---------------------------------
+}
+# rom encrypt apks,chengting,@20130712,end
+
+function makesys
+{
+		MAKEFILE_COMPILE_VAR=BIRD_SPECIAL_PARTITION_ON
+		outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+		if [[ $outbuf == "yes" ]]; then
+			MAKEFILE_COMPILE_VAR=BIRD_SPECIAL_PARTITION_SYSTEMIMG_SIZE
+			outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+		else
+		  outbuf=499M
+		fi
+  if [[ $1 == ONLY_MAKE_IMAGE_WHEN_MAKEOTA ]]; then
+		echo only make image when makeota
+  else
+		# rom encrypt apks,chengting,@20130712,begin
+		compileapklist
+		# rom encrypt apks,chengting,@20130712,end
+		bird/build/common/target/product/prepack_systemimg.sh $PROJECT_NAME $outbuf
+  fi
+		out/host/linux-x86/bin/make_ext4fs -s -l $outbuf -a system out/target/product/$PROJECT_NAME/system.img out/target/product/$PROJECT_NAME/system
+  checkapdb
+}
+function makeuser
+{
+
+		MAKEFILE_COMPILE_VAR=BIRD_SPECIAL_PARTITION_ON
+		outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+		if [[ $outbuf == "yes" ]]; then
+			MAKEFILE_COMPILE_VAR=BIRD_SPECIAL_PARTITION_USERDATAIMG_SIZE
+			outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+		else
+		  outbuf=941M
+	    # 942M may cause error
+		fi
+  if [[ $1 == ONLY_MAKE_IMAGE_WHEN_MAKEOTA ]]; then
+		echo only make image when makeota
+  else
+    bird/build/common/target/product/prepack_userdataimg.sh $PROJECT_NAME $outbuf
+  fi
+    out/host/linux-x86/bin/make_ext4fs -s -l $outbuf -a data out/target/product/$PROJECT_NAME/userdata.img out/target/product/$PROJECT_NAME/data
+}
+function makesysnand
+{
+  if [[ $1 == ONLY_MAKE_IMAGE_WHEN_MAKEOTA ]]; then
+		echo only make image when makeota
+  else
+	  # rom encrypt apks,chengting,@20130712,begin
+	  compileapklist
+	  # rom encrypt apks,chengting,@20130712,end
+    bird/build/common/target/product/prepack_systemimg.sh $PROJECT_NAME
+  fi
+  tar -czf - out/target/product/$PROJECT_NAME/system|openssl des3 -salt -k dj8cb293kxc0461c | dd of=out/target/product/$PROJECT_NAME/sys-romtool.img
+    partition_size_file=mediatek/config/out/$PROJECT_NAME/configs/partition_size.mk
+    if [ ! -e $partition_size_file ]; then
+    	echo not exist file: $partition_size_file
+    	exit
+    fi
+    JBOARD_UBIFS_MIN_IO_SIZE=$(sed -n -e '/BOARD_UBIFS_MIN_IO_SIZE:=/p' $partition_size_file)
+    JBOARD_UBIFS_MIN_IO_SIZE=${JBOARD_UBIFS_MIN_IO_SIZE#*=}
+    JBOARD_FLASH_BLOCK_SIZE=$(sed -n -e '/BOARD_FLASH_BLOCK_SIZE:=/p' $partition_size_file)
+    JBOARD_FLASH_BLOCK_SIZE=${JBOARD_FLASH_BLOCK_SIZE#*=}
+    JBOARD_UBIFS_VID_HDR_OFFSET=$(sed -n -e '/BOARD_UBIFS_VID_HDR_OFFSET:=/p' $partition_size_file)
+    JBOARD_UBIFS_VID_HDR_OFFSET=${JBOARD_UBIFS_VID_HDR_OFFSET#*=}
+    JBOARD_UBIFS_LOGICAL_ERASEBLOCK_SIZE=$(sed -n -e '/BOARD_UBIFS_LOGICAL_ERASEBLOCK_SIZE:=/p' $partition_size_file)
+    JBOARD_UBIFS_LOGICAL_ERASEBLOCK_SIZE=${JBOARD_UBIFS_LOGICAL_ERASEBLOCK_SIZE#*=}
+    JBOARD_UBIFS_ANDROID_MAX_LOGICAL_ERASEBLOCK_COUNT=$(sed -n -e '/BOARD_UBIFS_ANDROID_MAX_LOGICAL_ERASEBLOCK_COUNT:=/p' $partition_size_file)
+    JBOARD_UBIFS_ANDROID_MAX_LOGICAL_ERASEBLOCK_COUNT=${JBOARD_UBIFS_ANDROID_MAX_LOGICAL_ERASEBLOCK_COUNT#*=}
+    #echo BOARD_UBIFS_MIN_IO_SIZE=$JBOARD_UBIFS_MIN_IO_SIZE, BOARD_FLASH_BLOCK_SIZE=$JBOARD_FLASH_BLOCK_SIZE, BOARD_UBIFS_VID_HDR_OFFSET=$JBOARD_UBIFS_VID_HDR_OFFSET, BOARD_UBIFS_LOGICAL_ERASEBLOCK_SIZE=$JBOARD_UBIFS_LOGICAL_ERASEBLOCK_SIZE, BOARD_UBIFS_ANDROID_MAX_LOGICAL_ERASEBLOCK_COUNT=$JBOARD_UBIFS_ANDROID_MAX_LOGICAL_ERASEBLOCK_COUNT
+    #echo out/host/linux-x86/bin/mkfs_ubifs -F -r out/target/product/$PROJECT_NAME/system -o out/target/product/$PROJECT_NAME/ubifs.android.img -m $JBOARD_UBIFS_MIN_IO_SIZE -e $JBOARD_UBIFS_LOGICAL_ERASEBLOCK_SIZE -c $JBOARD_UBIFS_ANDROID_MAX_LOGICAL_ERASEBLOCK_COUNT -v  
+    out/host/linux-x86/bin/mkfs_ubifs -F -r out/target/product/$PROJECT_NAME/system -o out/target/product/$PROJECT_NAME/ubifs.android.img -m $JBOARD_UBIFS_MIN_IO_SIZE -e $JBOARD_UBIFS_LOGICAL_ERASEBLOCK_SIZE -c $JBOARD_UBIFS_ANDROID_MAX_LOGICAL_ERASEBLOCK_COUNT -v
+
+    #echo out/host/linux-x86/bin/ubinize -o out/target/product/$PROJECT_NAME/system.img -m $JBOARD_UBIFS_MIN_IO_SIZE -p $JBOARD_FLASH_BLOCK_SIZE -O $JBOARD_UBIFS_VID_HDR_OFFSET -v out/target/product/$PROJECT_NAME/ubi_android.ini
+    out/host/linux-x86/bin/ubinize -o out/target/product/$PROJECT_NAME/system.img -m $JBOARD_UBIFS_MIN_IO_SIZE -p $JBOARD_FLASH_BLOCK_SIZE -O $JBOARD_UBIFS_VID_HDR_OFFSET -v out/target/product/$PROJECT_NAME/ubi_android.ini
+    rm -rf out/target/product/$PROJECT_NAME/ubifs.android.img
+  checkapdb
+}
+function makeusernand
+{
+  if [[ $1 == ONLY_MAKE_IMAGE_WHEN_MAKEOTA ]]; then
+		echo only make image when makeota
+  else
+    bird/build/common/target/product/prepack_userdataimg.sh $PROJECT_NAME
+  fi
+  tar -czf - out/target/product/$PROJECT_NAME/data|openssl des3 -salt -k dj8cb293kxc0461c | dd of=out/target/product/$PROJECT_NAME/usr-romtool.img
+    partition_size_file=mediatek/config/out/$PROJECT_NAME/configs/partition_size.mk
+    if [ ! -e $partition_size_file ]; then
+    	echo not exist file: $partition_size_file
+    	exit
+    fi
+    JBOARD_UBIFS_MIN_IO_SIZE=$(sed -n -e '/BOARD_UBIFS_MIN_IO_SIZE:=/p' $partition_size_file)
+    JBOARD_UBIFS_MIN_IO_SIZE=${JBOARD_UBIFS_MIN_IO_SIZE#*=}
+    JBOARD_FLASH_BLOCK_SIZE=$(sed -n -e '/BOARD_FLASH_BLOCK_SIZE:=/p' $partition_size_file)
+    JBOARD_FLASH_BLOCK_SIZE=${JBOARD_FLASH_BLOCK_SIZE#*=}
+    JBOARD_UBIFS_VID_HDR_OFFSET=$(sed -n -e '/BOARD_UBIFS_VID_HDR_OFFSET:=/p' $partition_size_file)
+    JBOARD_UBIFS_VID_HDR_OFFSET=${JBOARD_UBIFS_VID_HDR_OFFSET#*=}
+    JBOARD_UBIFS_LOGICAL_ERASEBLOCK_SIZE=$(sed -n -e '/BOARD_UBIFS_LOGICAL_ERASEBLOCK_SIZE:=/p' $partition_size_file)
+    JBOARD_UBIFS_LOGICAL_ERASEBLOCK_SIZE=${JBOARD_UBIFS_LOGICAL_ERASEBLOCK_SIZE#*=}
+    JBOARD_UBIFS_USRDATA_MAX_LOGICAL_ERASEBLOCK_COUNT=$(sed -n -e '/BOARD_UBIFS_USRDATA_MAX_LOGICAL_ERASEBLOCK_COUNT:=/p' $partition_size_file)
+    JBOARD_UBIFS_USRDATA_MAX_LOGICAL_ERASEBLOCK_COUNT=${JBOARD_UBIFS_USRDATA_MAX_LOGICAL_ERASEBLOCK_COUNT#*=}
+    #echo BOARD_UBIFS_MIN_IO_SIZE=$JBOARD_UBIFS_MIN_IO_SIZE, BOARD_FLASH_BLOCK_SIZE=$JBOARD_FLASH_BLOCK_SIZE, BOARD_UBIFS_VID_HDR_OFFSET=$JBOARD_UBIFS_VID_HDR_OFFSET, BOARD_UBIFS_LOGICAL_ERASEBLOCK_SIZE=$JBOARD_UBIFS_LOGICAL_ERASEBLOCK_SIZE, BOARD_UBIFS_ANDROID_MAX_LOGICAL_ERASEBLOCK_COUNT=$JBOARD_UBIFS_ANDROID_MAX_LOGICAL_ERASEBLOCK_COUNT
+    #echo out/host/linux-x86/bin/mkfs_ubifs -F -r out/target/product/$PROJECT_NAME/data -o out/target/product/$PROJECT_NAME/ubifs.usrdata.img -m $JBOARD_UBIFS_MIN_IO_SIZE -e $JBOARD_UBIFS_LOGICAL_ERASEBLOCK_SIZE -c $JBOARD_UBIFS_USRDATA_MAX_LOGICAL_ERASEBLOCK_COUNT -v  
+    out/host/linux-x86/bin/mkfs_ubifs -F -r out/target/product/$PROJECT_NAME/data -o out/target/product/$PROJECT_NAME/ubifs.usrdata.img -m $JBOARD_UBIFS_MIN_IO_SIZE -e $JBOARD_UBIFS_LOGICAL_ERASEBLOCK_SIZE -c $JBOARD_UBIFS_USRDATA_MAX_LOGICAL_ERASEBLOCK_COUNT -v
+
+    #echo out/host/linux-x86/bin/ubinize -o out/target/product/$PROJECT_NAME/userdata.img -m $JBOARD_UBIFS_MIN_IO_SIZE -p $JBOARD_FLASH_BLOCK_SIZE -O $JBOARD_UBIFS_VID_HDR_OFFSET -v out/target/product/$PROJECT_NAME/ubi_usrdata.ini
+    out/host/linux-x86/bin/ubinize -o out/target/product/$PROJECT_NAME/userdata.img -m $JBOARD_UBIFS_MIN_IO_SIZE -p $JBOARD_FLASH_BLOCK_SIZE -O $JBOARD_UBIFS_VID_HDR_OFFSET -v out/target/product/$PROJECT_NAME/ubi_usrdata.ini
+    rm -rf out/target/product/$PROJECT_NAME/ubifs.usrdata.img
+
+}
+
+function checkapdb # check apdb version
+{
+  #read swver from build.prop display.id
+  local buildproppath=out/target/product/$PROJECT_NAME/system/build.prop
+  if [ ! -e $buildproppath ]; then
+    echo -e "Error: APDB Version incorrect!\nFile not exists:$buildproppath\n"
+  else
+    # get a apdb file path
+    local apdbpath
+    if [ -f out/target/product/$PROJECT_NAME/*APDB* ]; then
+      apdbpath=$(ls out/target/product/$PROJECT_NAME/*APDB*|head -1)
+    elif [ -f out/target/product/$PROJECT_NAME/db/*APDB* ]; then
+      apdbpath=$(ls out/target/product/$PROJECT_NAME/db/*APDB*|head -1)
+    else
+      apdbpath=$(ls out/target/product/$PROJECT_NAME/db/*/*APDB*|grep APDB_|head -1)
+    fi
+    if [ -z "$apdbpath" ]; then
+      echo -e "Error: APDB Version incorrect!\nCannot find APDB file!\n"
+    else
+      echo APDB=$apdbpath
+      # start check apdb version
+      gcc -o bird/tool/checkAPDBversion bird/tool/checkAPDBversion.c
+      ./bird/tool/checkAPDBversion "$apdbpath" "$buildproppath"
+    fi
+  fi
+}
+
+function checkSoftwareVersionLength
+{
+  MAKEFILE_COMPILE_VAR=MTK_BUILD_VERNO
+  outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+
+  len=${#outbuf}
+
+  if [ $len -gt 60 ]; then
+    echo "================MTK_BUILD_VERNO=================="
+    echo "MTK_BUILD_VERNO length: $len"
+    echo "MTK_BUILD_VERNO is longer than 60!"
+    exit
+  fi
+
+}
+
+if [[ $1 == "m" ]]; then
+    cp -rf bird/out/previous_build_config_${PROJECT_NAME}.mk out/target/product/$PROJECT_NAME/previous_build_config.mk
+    source ./build/envsetup.sh
+    if [[ $2 == "-n" ]]; then
+        TARGET_PRODUCT=$PROJECT_NAME m $3
+    else
+        TARGET_PRODUCT=$PROJECT_NAME m $2
+        makesys
+    fi
+    exit
+elif [[ $1 == "mm" ]]; then
+    #cp -rf bird/out/previous_build_config_${PROJECT_NAME}.mk out/target/product/$PROJECT_NAME/previous_build_config.mk
+    if [[ $2 == "-n" ]]; then
+        ./mk $PROJECT_NAME mm $3
+    else
+        ./mk $PROJECT_NAME mm $2
+        makesys
+    fi
+    exit
+elif [[ $1 == "mmm" ]]; then
+    cp -rf bird/out/previous_build_config_${PROJECT_NAME}.mk out/target/product/$PROJECT_NAME/previous_build_config.mk
+    source ./build/envsetup.sh
+    if [[ $2 == "-n" ]]; then
+        TARGET_PRODUCT=$PROJECT_NAME mmm $3
+    else
+        TARGET_PRODUCT=$PROJECT_NAME mmm $2
+        makesys
+    fi
+    exit
+elif [[ $1 == "mn" ]]; then
+    cp -rf bird/out/previous_build_config_${PROJECT_NAME}.mk out/target/product/$PROJECT_NAME/previous_build_config.mk
+    source ./build/envsetup.sh
+    if [[ $2 == "-n" ]]; then
+        TARGET_PRODUCT=$PROJECT_NAME m $3
+    else
+        TARGET_PRODUCT=$PROJECT_NAME m $2
+        makesysnand
+    fi
+    exit
+elif [[ $1 == "mmn" ]]; then
+    if [[ $2 == "-n" ]]; then
+        ./mk $PROJECT_NAME mm $3
+    else
+        ./mk $PROJECT_NAME mm $2
+        makesysnand
+    fi
+    exit
+elif [[ $1 == "mmmn" ]]; then
+    cp -rf bird/out/previous_build_config_${PROJECT_NAME}.mk out/target/product/$PROJECT_NAME/previous_build_config.mk
+    source ./build/envsetup.sh
+    if [[ $2 == "-n" ]]; then
+        TARGET_PRODUCT=$PROJECT_NAME mmm $3
+    else
+        TARGET_PRODUCT=$PROJECT_NAME mmm $2
+        makesysnand
+    fi
+    exit    
+elif [[ $1 == "makeboot" ]]; then
+    if  [[ $2 == "eng" ]]; then
+        cp -rf bird/out/previous_build_config_${PROJECT_NAME}_eng.mk out/target/product/$PROJECT_NAME/previous_build_config.mk
+        ./mk $PROJECT_NAME bootimage
+    else
+        cp -rf bird/out/previous_build_config_${PROJECT_NAME}_user.mk out/target/product/$PROJECT_NAME/previous_build_config.mk
+        ./mk -opt=TARGET_BUILD_VARIANT=user $PROJECT_NAME bootimage
+    fi
+    exit
+elif [[ $1 == "makerecov" ]]; then
+    if  [[ $2 == "eng" ]]; then
+        cp -rf bird/out/previous_build_config_${PROJECT_NAME}_eng.mk out/target/product/$PROJECT_NAME/previous_build_config.mk
+        ./mk $PROJECT_NAME recoveryimage
+    else
+        cp -rf bird/out/previous_build_config_${PROJECT_NAME}_user.mk out/target/product/$PROJECT_NAME/previous_build_config.mk
+        ./mk -opt=TARGET_BUILD_VARIANT=user $PROJECT_NAME recoveryimage
+    fi
+    exit
+elif [[ $1 == "makesys" ]]; then
+    makesys
+    exit
+elif [[ $1 == "makesysnand" ]]; then
+    makesysnand
+    exit
+elif [[ $1 == "makeuser" ]]; then
+    cp -rf bird/out/previous_build_config_${PROJECT_NAME}.mk out/target/product/$PROJECT_NAME/previous_build_config.mk
+    cp -r packages/apps/apk2userdata/common/*.apk out/target/product/$PROJECT_NAME/data/app
+    makeuser
+    exit
+elif [[ $1 == "checkapdb" ]]; then
+    checkapdb
+    exit
+elif [[ $1 == "makeusernand" ]]; then
+    cp -rf bird/out/previous_build_config_${PROJECT_NAME}.mk out/target/product/$PROJECT_NAME/previous_build_config.mk
+    cp -r packages/apps/apk2userdata/common/*.apk out/target/product/$PROJECT_NAME/data/app
+    makeusernand
+    exit    
+elif [[ $1 == "img2mnt" ]]; then
+    rm /mnt/hgfs/image/*.*
+    rm -r /mnt/hgfs/image/$2
+    mkdir /mnt/hgfs/image/$2
+    cp ./out/target/product/$PROJECT_NAME/* /mnt/hgfs/image/$2
+    cp ./mediatek/custom/out/$PROJECT_NAME/modem/BPLGUInfoCustomApp_MT6573_S01_MAUI_11AMD_W11_37_SP_V8 /mnt/hgfs/image/$2
+    cp ./mediatek/source/cgen/APDB_MT6573_S01_ALPS.GB.FDD2_MP_W11.45 /mnt/hgfs/image/$2
+    cp ./out/target/product/$PROJECT_NAME/DSP_BL /mnt/hgfs/image/$2
+    cp ./bird/CheckSum_Generate.exe /mnt/hgfs/image/$2 
+    wine  /mnt/hgfs/image/$2/CheckSum_Generate.exe    /mnt/hgfs/image/$2   
+    exit
+elif [[ $1 == "makeota" ]]; then
+    # rom encrypt apks,chengting,@20130712,begin 
+    MAKEFILE_COMPILE_VAR_APKS_ENCRYPT=BIRD_ROM_ENCRYPT_APKS
+    romencryptapks=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR_APKS_ENCRYPT)
+    if [[ $romencryptapks == "yes" ]];then
+       echo create file nbcheck to out/target/product/$PROJECT_NAME/system/xbin/
+   	> out/target/product/$PROJECT_NAME/system/xbin/nbcheck
+    fi
+    # rom encrypt apks,chengting,@20130712,end
+    
+    if  [[ $2 == "eng" ]]; then
+        ./mk $PROJECT_NAME otapackage
+    else
+        ./mk -opt=TARGET_BUILD_VARIANT=user $PROJECT_NAME otapackage
+    fi
+    
+    # rom encrypt apks,chengting,@20130712,begin
+    if [[ $romencryptapks == "yes" ]];then
+    	if [[ -e out/target/product/$PROJECT_NAME/system/xbin/nbcheck ]];then
+       	   echo delete file nbcheck from out/target/product/$PROJECT_NAME/system/xbin/
+           rm -rf out/target/product/$PROJECT_NAME/system/xbin/nbcheck
+           MAKEFILE_COMPILE_VAR_EMMC=MTK_EMMC_SUPPORT
+           emmc=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR_EMMC)
+           if [[ $emmc == "yes" ]];then
+    	       makesys ONLY_MAKE_IMAGE_WHEN_MAKEOTA
+           else
+    	       makesysnand ONLY_MAKE_IMAGE_WHEN_MAKEOTA
+           fi
+        fi
+    fi
+    # rom encrypt apks,chengting,@20130712,end
+    rm -rf out/target/product/$PROJECT_NAME/ubifs.android.img out/target/product/$PROJECT_NAME/ubifs.usrdata.img
+    exit
+elif [[ $1 == "makefat" ]]; then
+    rm -rf fat.img
+    rm -rf fat_spare.img
+    rm -rf fat_disk
+    # fat image size:
+    # 4P32 2047872
+    # 8P32 2047872
+    # 8P64 4375936 jiali 2014-03-01 TOSHIBA TYD0GH231624RC, FAT size:4478336 - 100M
+    # 2P16 884608
+    mkfs.vfat -v -C fat.img 2047872
+    mkdir fat_disk
+    mount -o loop,iocharset=utf8 fat.img fat_disk/
+    cp -R $2/* fat_disk/
+    umount fat_disk/
+    chmod 777 ./mediatek/build/tools/trim
+    ./mediatek/build/tools/trim fat.img fat_spare.img
+    cp fat_spare.img ./out/target/product/$PROJECT_NAME/fat_spare.img
+    rm -rf fat_disk
+    rm -rf fat.img
+    rm -rf fat_spare.img
+    exit
+elif [[ $1 == "banyan_addon" ]]; then
+    ./makeMtk banyan_addon
+    exit
+elif [[ $1 == "find" ]]; then
+    if  [[ $3 == "all" ]]; then
+        find $2 -type f | xargs grep -n $4
+    else
+        find $2 -type f -name *.$3 | xargs grep -n $4
+    fi
+    exit
+elif [[ $1 == "compile-apklist" ]]; then
+    makefilename=$MAKEFILE_NAME
+    echo mak name: $makefilename
+    if [[ $makefilename == "" ]]; then
+        echo You may need try commond: ./makeBird [makfile-name] compile-apklist
+    else
+    	compileapklist
+    fi
+    exit
+fi
+
+
+
+############################### Global var ########################################
+MAKEFILE_NAME=bird/make/$1.mak
+if [ ! -f $MAKEFILE_NAME ]; then
+echo $MAKEFILE_NAME not exist,pls check in the directory $MAKEFILE_NAME
+exit
+fi
+chmod 755 ./get_string
+
+# rom encrypt apks,chengting,@20130712,begin 
+if [[ $2 == "compile-apklist" ]]; then
+    compileapklist
+    exit
+fi
+compileapklist
+# rom encrypt apks,chengting,@20130712,end 
+
+MAKEFILE_COMPILE_VAR=LCM_HEIGHT
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf = 320 ]]; then
+LCD_DENS=qvga
+DrawableType=drawable-mdpi
+MipmapType=mipmap-mdpi
+elif [[ $outbuf = 400 ]]; then
+LCD_DENS=wqvga
+DrawableType=drawable-mdpi
+MipmapType=mipmap-mdpi
+elif [[ $outbuf = 480 ]]; then
+LCD_DENS=hvga
+DrawableType=drawable-mdpi
+MipmapType=mipmap-mdpi
+elif [[ $outbuf = 800 ]]; then
+LCD_DENS=wvga
+DrawableType=drawable-hdpi
+MipmapType=mipmap-hdpi
+elif [[ $outbuf = 854 ]]; then
+LCD_DENS=fwvga
+DrawableType=drawable-hdpi
+MipmapType=mipmap-hdpi
+elif [[ $outbuf = 960 ]]; then
+LCD_DENS=qhd
+DrawableType=drawable-hdpi-960x540
+MipmapType=mipmap-hdpi-960x540
+elif [[ $outbuf = 1024 ]]; then
+LCD_DENS=wsvga
+DrawableType=drawable-hdpi-1024x600
+MipmapType=mipmap-hdpi-1024x600
+elif [[ $outbuf = 600 ]]; then
+LCD_DENS=wsvga
+DrawableType=drawable-hdpi-1024x600
+MipmapType=mipmap-hdpi-1024x600
+elif [[ $outbuf = 1280 ]]; then
+LCD_DENS=hd720p
+DrawableType=drawable-xhdpi-1280x720
+MipmapType=mipmap-xhdpi-1280x720
+elif [[ $outbuf = 1920 ]]; then
+LCD_DENS=fhd
+DrawableType=drawable-xhdpi-1920x1080
+MipmapType=mipmap-xhdpi-1920x1080
+fi
+echo lcd dens : $LCD_DENS
+
+if [[ $LCD_DENS = "wvga" ]]; then
+rm -rf frameworks/base/core/res/assets/images/android-logo-mask.png
+rm -rf frameworks/base/core/res/assets/images/android-logo-shine.png
+cp -a bird/logo/android-logo-mask-wvga.png frameworks/base/core/res/assets/images/android-logo-mask.png
+cp -a bird/logo/android-logo-shine-wvga.png frameworks/base/core/res/assets/images/android-logo-shine.png
+fi
+
+############################### BIRD_CONFIG ########################################
+MAKEFILE_COMPILE_VAR=BIRD_CONFIG
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf = $MAKEFILE_COMPILE_VAR ]]; then
+BIRD_CONFIG_DIR=$1
+else
+BIRD_CONFIG_DIR=$outbuf
+fi
+
+filename=bird/config/$BIRD_CONFIG_DIR
+if [ ! -e $filename ]; then
+echo $filename not exist,pls check in the directory $filename
+exit
+fi
+#rm -r mediatek/config/$PROJECT_NAME
+cp -r $filename/* mediatek/config/$PROJECT_NAME
+#--------------------------------------------------------------------------------
+
+############################### new ui res copy ########################################
+VAR_BIRD_UI_TYPE=BIRD_UI_TYPE
+birduitype=$(./get_string $MAKEFILE_NAME $VAR_BIRD_UI_TYPE)
+
+VAR_CONTACTS_ALL_IN_ONE=BIRD_CONTACT_ALL_IN_ONE
+allinonecontacts=$(./get_string $MAKEFILE_NAME $VAR_CONTACTS_ALL_IN_ONE)
+
+VAR_BLD_ALL_IN_ONE=BIRD_BLD_ALL_IN_ONE
+allinonebld=$(./get_string $MAKEFILE_NAME $VAR_BLD_ALL_IN_ONE)
+
+birduipath=bird/bird_new_ui_overlay/$birduitype
+echo $birduipath
+if [[ -e $birduipath ]]; then
+  if [[ $allinonecontacts == "yes" ]]||[[ $allinonebld == "yes" ]]; then
+    #cp -rf $birduipath/Contacts/res/* packages/apps/Contacts/res
+    #cp -rf $birduipath/ThemeApkManager/res/* packages/apps/ThemeApkManager/res
+     cp -rf $birduipath/* packages/apps/
+  fi
+fi
+#--------------------------------------------------------------------------------
+
+
+############################### BIRD_DM_CONFIG ########################################
+MAKEFILE_COMPILE_VAR=BIRD_DM_CONFIG
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+
+if [[ $outbuf = $MAKEFILE_COMPILE_VAR ]]; then
+echo BIRD_DM_CONFIG = 
+else
+
+filename=bird/DM/$outbuf
+if [ ! -e $filename ]; then
+echo $filename not exist,pls check in the directory $filename
+exit
+fi
+
+cp -r $filename/config/custom.conf mediatek/config/common
+cp -r $filename/SmsReg/config/smsSelfRegConfig.xml mediatek/packages/apps/SmsReg/config/smsSelfRegConfig.xml
+
+fi
+############################### temp remove old file ########################################
+rm -r bird/wallpaper/extra_wallpapers/DOOVL_HD/values/dimens.xml
+rm -r packages/apps/ThemeClassics
+rm -r packages/apps/ThemeCookie
+rm -r packages/apps/ThemeDefault
+rm -r packages/apps/ThemeLovely
+rm -r packages/apps/ThemePaper
+
+
+############################### BIRD_CUSTOM ########################################
+MAKEFILE_COMPILE_VAR=BIRD_CUSTOM
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf = $MAKEFILE_COMPILE_VAR ]]; then
+BIRD_CUSTOM_DIR=$1
+else
+BIRD_CUSTOM_DIR=$outbuf
+fi
+
+filename=bird/custom/$BIRD_CUSTOM_DIR
+if [ ! -e $filename ]; then
+echo $filename not exist,pls check in the directory $filename
+exit
+fi
+
+MAKEFILE_COMPILE_VAR=CUSTOM_MEMORY_SIZE
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "8G" ]]; then
+filenamesrc=bird/custom/$BIRD_CUSTOM_DIR/preloader/inc/RAM_SIZE_8G
+filenamedes=bird/custom/$BIRD_CUSTOM_DIR/preloader/inc
+echo $filenamesrc
+echo $filenamedes
+if [ ! -e $filenamesrc ]; then
+echo $filenamesrc not exist,pls check in the directory $filenamesrc
+else
+cp -r $filenamesrc/* $filenamedes
+fi
+fi
+
+if [[ $outbuf == "4G" ]]; then
+filenamesrc=bird/custom/$BIRD_CUSTOM_DIR/preloader/inc/RAM_SIZE_4G
+filenamedes=bird/custom/$BIRD_CUSTOM_DIR/preloader/inc
+echo $filenamesrc
+echo $filenamedes
+if [ ! -e $filenamesrc ]; then
+echo $filenamesrc not exist,pls check in the directory $filenamesrc
+else
+cp -r $filenamesrc/* $filenamedes
+fi
+fi
+
+if [[ $outbuf == "2G" ]]; then
+filenamesrc=bird/custom/$BIRD_CUSTOM_DIR/preloader/inc/RAM_SIZE_2G
+filenamedes=bird/custom/$BIRD_CUSTOM_DIR/preloader/inc
+echo $filenamesrc
+echo $filenamedes
+if [ ! -e $filenamesrc ]; then
+echo $filenamesrc not exist,pls check in the directory $filenamesrc
+else
+cp -r $filenamesrc/* $filenamedes
+fi
+fi
+
+MAKEFILE_COMPILE_VAR=BIRD_PROJECT_MCP_NAME
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+BIRD_CUSTOM_PROJECT_DIR=$outbuf
+
+filenamesrc=bird/custom/$BIRD_CUSTOM_DIR/preloader/inc/$BIRD_CUSTOM_PROJECT_DIR
+filenamedes=bird/custom/$BIRD_CUSTOM_DIR/preloader/inc
+
+echo $filenamesrc
+echo $filenamedes
+if [ ! -e $filenamesrc ]; then
+echo $filenamesrc not exist,pls check in the directory $filenamesrc
+else
+cp -r $filenamesrc/* $filenamedes
+fi
+
+### add FTM audio param copy cfg begin ywj#####
+
+MAKEFILE_COMPILE_VAR=BIRD_FTM_AUDIO_PARAM
+ftm_audio_param=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+
+if [[ $ftm_audio_param == "yes" ]]; then
+audiofilenamesrc=bird/FTM_CFG/audio_param/common
+audiofilenamedes=bird/custom/$BIRD_CUSTOM_DIR/cgen/inc
+echo *********this is ftm audio param $filenamesrc 
+echo  *********this is destination for ftm audio param $filenamedes
+cp -r $audiofilenamesrc/* $audiofilenamedes
+else
+if [[ $ftm_audio_param == $BIRD_CUSTOM_DIR ]]; then
+
+audiofilenamesrc=bird/FTM_CFG/audio_param/$BIRD_CUSTOM_DIR
+audiofilenamedes=bird/custom/$BIRD_CUSTOM_DIR/cgen/inc
+cp -r $audiofilenamesrc/* $audiofilenamedes
+fi
+fi
+
+
+### add FTM audio param copy cfg end ywj#####
+
+#rm -r mediatek/custom/$PROJECT_NAME
+cp -r $filename/* mediatek/custom/$PROJECT_NAME
+
+cp $filename/cgen/inc/sph_coeff_default.h mediatek/custom/common/cgen/inc
+
+#### COPY FACTORY_LED_TEST_PICTURES ####
+# jiali add 2012/03/28
+# ignore all picture files in bird/custom/$(projectname)/factory/res/images/
+# all led_test_pic files for all project are in bird/factory_lcd_test_pic/
+rm -r mediatek/custom/$PROJECT_NAME/factory/res/images/*
+
+#check if appropriate pictures for the LCD_DENS exist
+factory_lcd_test=bird/factory_lcd_test_pic/$LCD_DENS
+if [ ! -e $factory_lcd_test/lcd_test_00.png ]; then
+echo appropriate pictures for $LCD_DENS LCD Test not exist,pls check in the directory $factory_lcd_test, or call jiali
+exit
+fi
+cp $factory_lcd_test/* mediatek/custom/$PROJECT_NAME/factory/res/images/
+echo copied $LCD_DENS LCD Test Pictures for $BIRD_CUSTOM_DIR
+############################### BIRD_BUILD ########################################
+MAKEFILE_COMPILE_VAR=BIRD_BUILD
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf = $MAKEFILE_COMPILE_VAR ]]; then
+BIRD_BUILD_DIR=$1
+else
+BIRD_BUILD_DIR=$outbuf
+fi
+
+filename=bird/build/$BIRD_BUILD_DIR/target/product
+if [ ! -e $filename ]; then
+echo $filename not exist,pls check in the directory $filename
+exit
+fi
+cp -r $filename/$PROJECT_NAME.mk build/target/product/$PROJECT_NAME.mk
+cp -r $filename/core.mk build/target/product/core.mk
+
+
+############################### BIRD_DWS_PROJECT#######################################
+MAKEFILE_COMPILE_VAR=BIRD_DWS_PROJECT
+dws_project_name=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ ! $dws_project_name = "BIRD_DWS_PROJECT" ]]; then
+filename=mediatek/custom/$PROJECT_NAME/kernel/dct/dct/$dws_project_name/codegen.dws
+if [ ! -e $filename ]; then
+echo $filename not exist,pls check in the directory filename
+exit
+fi
+cp $filename mediatek/custom/$PROJECT_NAME/kernel/dct/dct/codegen.dws
+fi
+
+############################## Add Patch ALPS00251712 ###########################
+#----------------------------------add patch-------------------------------------
+MAKEFILE_COMPILE_VAR=BIRD_MIPI_VDO_PATCH_ALPS00311157
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+echo ==================$outbuf==================
+if [[ $outbuf == "yes" ]]; then
+foldername=bird/ALPS00311157
+if [ -d $foldername ]; then
+echo ==================start copy patch alps00311157==================
+cp -rf $foldername/mediatek/custom/common/kernel/lcm/inc/lcm_drv.h  mediatek/custom/common/kernel/lcm/inc/
+cp -rf $foldername/mediatek/platform/mt6575/kernel/drivers/video/*  mediatek/platform/mt6575/kernel/drivers/video
+cp -rf $foldername/mediatek/platform/mt6575/uboot/*  mediatek/platform/mt6575/uboot 
+cp -rf $foldername/mediatek/source/kernel/drivers/video/*  mediatek/source/kernel/drivers/video
+echo ===================end copy patch alps00311157===================
+else
+echo ----- Error: ----- $outbuf folder not exist, pls check in the directory "bird/ALPS00311157"
+exit
+fi
+fi
+
+############################## CTA REMOVE GOOGLE ###########################
+MAKEFILE_COMPILE_VAR=MTK_CTA_SUPPORT
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+echo ==================start copy CTA_strings==================
+cp  -rf bird/CTA/packages/apps/Settings/res/values-zh-rCN/strings.xml   packages/apps/Settings/res/values-zh-rCN/strings.xml
+cp  -rf bird/CTA/frameworks/base/core/res/res/values-zh-rCN/strings.xml   frameworks/base/core/res/res/values-zh-rCN/strings.xml
+cp  -rf bird/CTA/packages/inputmethods/PinyinIME/res/values/strings.xml   packages/inputmethods/PinyinIME/res/values/strings.xml
+cp  -rf bird/CTA/packages/apps/Browser/AndroidManifest.xml   packages/apps/Browser/AndroidManifest.xml
+
+cp  -rf bird/CTA/packages/apps/Browser/res/values/donottranslate-search_engines.xml   packages/apps/Browser/res/values/donottranslate-search_engines.xml
+cp  -rf bird/CTA/packages/apps/Browser/res/values-zh-rCN/donottranslate-search_engines.xml   packages/apps/Browser/res/values-zh-rCN/donottranslate-search_engines.xml
+cp  -rf bird/CTA/packages/apps/Browser/res/values-zh-rTW/donottranslate-search_engines.xml   packages/apps/Browser/res/values-zh-rTW/donottranslate-search_engines.xml
+cp  -rf bird/CTA/mediatek/frameworks/base/res/res/values/donottranslate-new-search_engines.xml   mediatek/frameworks/base/res/res/values/donottranslate-new-search_engines.xml
+cp  -rf bird/CTA/mediatek/frameworks/base/res/res/values-zh-rCN/donottranslate-new-search_engines.xml   mediatek/frameworks/base/res/res/values-zh-rCN/donottranslate-new-search_engines.xml
+cp  -rf bird/CTA/mediatek/frameworks/base/res/res/values-zh-rTW/donottranslate-new-search_engines.xml   mediatek/frameworks/base/res/res/values-zh-rTW/donottranslate-new-search_engines.xml
+
+echo ==================copy CTA_strings ends==================
+fi
+
+
+###########################MTK_GPS_SUPPORT###########################
+VAR_GPS=MTK_GPS_SUPPORT
+gps=$(./get_string $MAKEFILE_NAME $VAR_GPS)
+VAR_GPS_COCLK=BIRD_GPS_COCLK
+gps_coclk=$(./get_string $MAKEFILE_NAME $VAR_GPS_COCLK)
+
+if [[ $gps_coclk == "yes" ]];then
+  
+  filename=bird/gps_coclk/WMT_SOC_COCLK.cfg
+	  if [ -e $filename ]; then
+	  	 echo cp $filename mediatek/custom/common/hal/ant/mt6582_ant_m1/WMT_SOC.cfg
+		   cp -rf $filename mediatek/custom/common/hal/ant/mt6582_ant_m1/WMT_SOC.cfg
+		else
+			 echo $filename not exit
+			 exit
+	  fi
+	  
+else
+
+if [[ $gps == "yes" ]];then
+  filename=bird/gps_tcxo/WMT_SOC_TCXO.cfg
+  if [ -e $filename ]; then
+  	 echo cp $filename mediatek/custom/common/hal/ant/mt6582_ant_m1/WMT_SOC.cfg
+	   cp -rf $filename mediatek/custom/common/hal/ant/mt6582_ant_m1/WMT_SOC.cfg
+	else
+		 echo $filename not exit
+		 exit
+  fi
+else
+  filename=bird/gps_tcxo/WMT_SOC_DCXO.cfg
+  if [ -e $filename ]; then
+  	 echo cp $filename mediatek/custom/common/hal/ant/mt6582_ant_m1/WMT_SOC.cfg
+	   cp -rf $filename mediatek/custom/common/hal/ant/mt6582_ant_m1/WMT_SOC.cfg
+	else
+		 echo $filename not exit
+		 exit
+  fi
+fi
+fi
+
+############################### load contacts begin ########################################
+VAR_LOAD_CUSTOM_CONTACTS=BIRD_LOAD_CUSTOM_CONTACTS_CONFIG
+outbuf=$(./get_string $MAKEFILE_NAME $VAR_LOAD_CUSTOM_CONTACTS)
+echo BIRD_LOAD_CUSTOM_CONTACTS_CONFIG=$outbuf
+if [[ $outbuf != BIRD_LOAD_CUSTOM_CONTACTS_CONFIG ]];then
+  filepath=bird/contacts_config/load_custom_contacts/$outbuf
+  echo $filepath
+  if [[ -e $filepath ]];then
+    cp -rf $filepath/* packages/providers/ContactsProvider/bird/res/
+    echo cp $filepath/* packages/providers/ContactsProvider/bird/res/
+  else
+    echo $filepath not exit!!
+    exit
+  fi
+fi
+############################### load contacts end   ########################################
+
+############################## Copy LockScreen Images ###########################
+#----------------------------------senselock-------------------------------------
+MAKEFILE_COMPILE_VAR=BIRD_SENSE_LAUNCHER
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+foldername=bird/drawable/lockscreen/senselock
+if [ -d $foldername ]; then
+echo ==================start copy LockScreen images==================
+echo senselock $LCD_DENS
+if [[ $LCD_DENS == "wvga" ]]; then
+  cp -rf $foldername/drawable-hdpi/*.* frameworks/base/core/res/res/drawable-hdpi
+elif [[ $LCD_DENS == "hvga" ]]; then
+  cp -rf $foldername/drawable-mdpi/*.* frameworks/base/core/res/res/drawable-mdpi
+elif [[ $LCD_DENS == "wqvga" ]]; then
+  cp -rf $foldername/drawable-mdpi/*.* frameworks/base/core/res/res/drawable-mdpi
+elif [[ $LCD_DENS == "qvga" ]]; then
+  cp -rf $foldername/drawable-ldpi/*.* frameworks/base/core/res/res/drawable-ldpi
+fi
+echo ===================end copy LockScreen images===================
+else
+echo ----- Error: ----- $foldername not exist, pls check the directory
+exit
+fi
+fi
+
+
+
+
+#----------------------------------senselockg11-------------------------------------
+MAKEFILE_COMPILE_VAR=BIRD_SENSE_LAUNCHERG11
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+MAKEFILE_COMPILE_VAR=BIRD_LOCKSCREEN_G11
+outbuf2=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+echo ==================$outbuf==================
+if [[ $outbuf == "yes" ]]||[[ $outbuf2 == "yes" ]]; then
+foldername=bird/drawable/lockscreen/senselockg11
+if [ -d $foldername ]; then
+echo ==================start copy LockScreen images==================
+echo senselockg11 $LCD_DENS
+if [[ $LCD_DENS == "wvga" ]]; then
+cp -rf $foldername/drawable-hdpi/*.* frameworks/base/core/res/res/drawable-hdpi
+elif [[ $LCD_DENS == "hvga" ]]; then
+cp -rf $foldername/drawable-mdpi/*.* frameworks/base/core/res/res/drawable-mdpi
+elif [[ $LCD_DENS == "wqvga" ]]; then
+cp -rf $foldername/drawable-mdpi/*.* frameworks/base/core/res/res/drawable-mdpi
+elif [[ $LCD_DENS == "qvga" ]]; then
+cp -rf $foldername/drawable-ldpi/*.* frameworks/base/core/res/res/drawable-ldpi
+fi
+echo ===================end copy LockScreen images===================
+else
+echo ----- Error: ----- $foldername not exist, pls check the directory
+exit
+fi
+fi
+
+#----------------------------------senselockg14-------------------------------------
+MAKEFILE_COMPILE_VAR=BIRD_SENSE_LAUNCHERG14
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+MAKEFILE_COMPILE_VAR=BIRD_SENSE_LAUNCHERREZOUND
+outbuf2=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+MAKEFILE_COMPILE_VAR=BIRD_LOCKSCREEN_G14
+outbuf3=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+echo ==================$outbuf==================
+if [[ $outbuf == "yes" ]]||[[ $outbuf2 == "yes" ]]||[[ $outbuf3 == "yes" ]]; then
+foldername=bird/drawable/lockscreen/senselockg14
+if [ -d $foldername ]; then
+echo ==================start copy LockScreen images==================
+echo senselockg14 $LCD_DENS
+if [[ $LCD_DENS == "qhd" ]]||[[ $LCD_DENS == "hd720p" ]]; then
+  cp -rf $foldername/$DrawableType/*.* frameworks/base/core/res/res/$DrawableType
+elif [[ $LCD_DENS == "wvga" ]]; then
+  cp -rf $foldername/drawable-hdpi/*.* frameworks/base/core/res/res/drawable-hdpi
+elif [[ $LCD_DENS == "hvga" ]]; then
+  cp -rf $foldername/drawable-mdpi/*.* frameworks/base/core/res/res/drawable-mdpi
+elif [[ $LCD_DENS == "wqvga" ]]; then
+  cp -rf $foldername/drawable-mdpi/*.* frameworks/base/core/res/res/drawable-mdpi
+elif [[ $LCD_DENS == "qvga" ]]; then
+  cp -rf $foldername/drawable-ldpi/*.* frameworks/base/core/res/res/drawable-ldpi
+fi
+echo ===================end copy LockScreen images===================
+else
+echo ----- Error: ----- $foldername not exist, pls check the directory
+exit
+fi
+fi
+
+#----------------------------------HYUNDAI--------------------------------
+MAKEFILE_COMPILE_VAR=BIRD_HYUNDAI_LAUNCHER
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+echo ==================$outbuf==================
+if [[ $outbuf == "yes" ]]; then
+foldername=bird/drawable/HYUNDAI
+if [ -d $foldername ]; then
+echo ==================start copy HYUNDAI images==================
+echo HYUNDAI $LCD_DENS
+cp -rf $foldername/drawable-hdpi/*  mediatek/source/packages/LauncherPlus/res/drawable-hdpi
+cp -rf $foldername/drawable-mdpi/*  mediatek/source/packages/LauncherPlus/res/drawable-mdpi
+cp -rf $foldername/LauncherPlus/xml/*  mediatek/source/packages/LauncherPlus/res/xml
+cp -rf $foldername/MoreApp/values/*  mediatek/source/packages/MoreApp/res/values
+cp -rf $foldername/MoreApp/values_zh/*  mediatek/source/packages/MoreApp/res/values-zh-rCN 
+cp -rf $foldername/LauncherPlus/values/values/*  mediatek/source/packages/LauncherPlus/res/values 
+cp -rf $foldername/LauncherPlus/values/values_zh/*  mediatek/source/packages/LauncherPlus/res/values-zh-rCN
+cp -rf $foldername/drawable/*  frameworks/base/core/res/res/drawable
+cp -rf $foldername/CameraOpen/res/drawable-hdpi/*  packages/apps/CameraOpen/res/drawable-hdpi
+if [[ $LCD_DENS == "wvga" ]]; then
+cp -rf $foldername/LauncherPlus/res/*  mediatek/source/packages/LauncherPlus/res/layout-port-finger-800x480
+cp -rf $foldername/Settings/res/drawable-hdpi/*  packages/apps/Settings/res/drawable-hdpi
+elif [[ $LCD_DENS == "hvga" ]]; then
+cp -rf $foldername/LauncherPlus/values/layout-land/*  mediatek/source/packages/LauncherPlus/res/layout-land
+cp -rf $foldername/LauncherPlus/values/layout-port/*  mediatek/source/packages/LauncherPlus/res/layout-port
+cp -rf $foldername/LauncherPlus/values/values-port-mdpi/*.*  mediatek/source/packages/LauncherPlus/res/values-port-mdpi
+cp -rf $foldername/Settings/res/drawable-mdpi/*  packages/apps/Settings/res/drawable-mdpi
+fi
+echo ===================end copy HYUNDAI images===================
+else
+echo ----- Error: ----- $outbuf folder not exist, pls check in the directory "bird/drawable/HYUNDAI"
+exit
+fi
+fi
+
+
+#----------------------------------glasslock lvhuaiyi add--------------------------------
+MAKEFILE_COMPILE_VAR=BIRD_GLASS_LOCKSCREEN
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+foldername=bird/drawable/lockscreen/glasslock
+if [ -d $foldername ]; then
+echo ==================start copy LockScreen images==================
+echo glasslock $LCD_DENS
+if [[ $LCD_DENS == "wvga" ]]; then
+cp -rf $foldername/drawable-hdpi/*.* frameworks/base/core/res/res/drawable-hdpi
+elif [[ $LCD_DENS == "hvga" ]]; then
+cp -rf $foldername/drawable-mdpi/*.* frameworks/base/core/res/res/drawable-mdpi
+elif [[ $LCD_DENS == "wqvga" ]]; then
+cp -rf $foldername/drawable-mdpi/*.* frameworks/base/core/res/res/drawable-mdpi
+fi
+echo ===================end copy LockScreen images===================
+else
+echo ----- Error: ----- $outbuf folder not exist, pls check in the directory "bird/lockscreen/glasslock"
+exit
+fi
+fi
+
+#----------------------------------glasslockg2 lvhuaiyi add--------------------------------
+MAKEFILE_COMPILE_VAR=BIRD_G2_GLASS_LOCKSCREEN
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+foldername=bird/drawable/lockscreen/glasslockg2
+if [ -d $foldername ]; then
+echo ==================start copy LockScreen images==================
+echo glasslock $LCD_DENS
+if [[ $LCD_DENS == "wvga" ]]; then
+cp -rf $foldername/drawable-hdpi/*.* frameworks/base/core/res/res/drawable-hdpi
+elif [[ $LCD_DENS == "fwvga" ]]; then
+cp -rf $foldername/drawable-fhdpi/*.* frameworks/base/core/res/res/drawable-hdpi
+elif [[ $LCD_DENS == "qhd" ]]; then
+cp -rf $foldername/drawable-hdpi-960x540/*.* frameworks/base/core/res/res/drawable-hdpi-960x540
+elif [[ $LCD_DENS == "hvga" ]]; then
+cp -rf $foldername/drawable-mdpi/*.* frameworks/base/core/res/res/drawable-mdpi
+elif [[ $LCD_DENS == "wqvga" ]]; then
+cp -rf $foldername/drawable-mdpi/*.* frameworks/base/core/res/res/drawable-mdpi
+fi
+echo ===================end copy LockScreen images===================
+else
+echo ----- Error: ----- $outbuf folder not exist, pls check in the directory "bird/lockscreen/glasslockg2"
+exit
+fi
+fi
+
+#----------------------------------wavelock lvhuaiyi add--------------------------------
+MAKEFILE_COMPILE_VAR=BIRD_WAVE_LOCKSCREEN
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+foldername=bird/drawable/lockscreen/wavelock
+if [ -d $foldername ]; then
+echo ==================start copy LockScreen images==================
+echo wavelock $LCD_DENS
+if [[ $LCD_DENS == "wvga" ]]; then
+cp -rf $foldername/drawable-hdpi/*.* frameworks/base/core/res/res/drawable-hdpi
+elif [[ $LCD_DENS == "hvga" ]]; then
+cp -rf $foldername/drawable-mdpi/*.* frameworks/base/core/res/res/drawable-mdpi
+elif [[ $LCD_DENS == "wqvga" ]]; then
+cp -rf $foldername/drawable-mdpi/*.* frameworks/base/core/res/res/drawable-mdpi
+fi
+echo ===================end copy LockScreen images===================
+else
+echo ----- Error: ----- $outbuf folder not exist, pls check in the directory "bird/lockscreen/wavelock"
+exit
+fi
+fi
+
+
+#----------------------------------rollerlock lvhuaiyi add--------------------------------
+MAKEFILE_COMPILE_VAR=BIRD_ROLLER_LOCKSCREEN
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+MAKEFILE_COMPILE_VAR=BIRD_ROLLER_LOCKSCREEN_CHILD
+outbuf2=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+foldername=bird/drawable/lockscreen/rollerlock
+if [ -d $foldername ]; then
+echo ==================start copy LockScreen images==================
+echo rollerlock $LCD_DENS
+if [[ $LCD_DENS == "wvga" ]]; then
+cp -rf $foldername/drawable-hdpi/*.* frameworks/base/core/res/res/drawable-hdpi
+if [[ $outbuf2 == "yes" ]]; then
+cp -rf $foldername/drawable-hdpi/thl/zzzzz_roller_unlock_center.png frameworks/base/core/res/res/drawable-hdpi
+cp -rf $foldername/drawable-hdpi/thl/ic_roller_default.png packages/apps/Settings/res/drawable-hdpi
+fi
+elif [[ $LCD_DENS == "fwvga" ]]; then
+cp -rf $foldername/drawable-hdpi/*.* frameworks/base/core/res/res/drawable-hdpi
+if [[ $outbuf2 == "yes" ]]; then
+cp -rf $foldername/drawable-hdpi/thl/zzzzz_roller_unlock_center.png frameworks/base/core/res/res/drawable-hdpi
+cp -rf $foldername/drawable-hdpi/thl/ic_roller_default.png packages/apps/Settings/res/drawable-hdpi
+fi
+elif [[ $LCD_DENS == "hvga" ]]; then
+cp -rf $foldername/drawable-mdpi/*.* frameworks/base/core/res/res/drawable-mdpi
+if [[ $outbuf2 == "yes" ]]; then
+cp -rf $foldername/drawable-mdpi/thl/zzzzz_roller_unlock_center.png frameworks/base/core/res/res/drawable-mdpi
+cp -rf $foldername/drawable-mdpi/thl/ic_roller_default.png packages/apps/Settings/res/drawable-mdpi
+fi
+elif [[ $LCD_DENS == "wqvga" ]]; then
+cp -rf $foldername/drawable-mdpi/*.* frameworks/base/core/res/res/drawable-mdpi
+if [[ $outbuf2 == "yes" ]]; then
+cp -rf $foldername/drawable-mdpi/thl/zzzzz_roller_unlock_center.png frameworks/base/core/res/res/drawable-mdpi
+cp -rf $foldername/drawable-mdpi/thl/ic_roller_default.png packages/apps/Settings/res/drawable-mdpi
+fi
+elif [[ $LCD_DENS == "qhd" ]]; then
+cp -rf $foldername/drawable-hdpi-960x540/*.* frameworks/base/core/res/res/drawable-hdpi-960x540
+if [[ $outbuf2 == "yes" ]]; then
+cp -rf $foldername/drawable-hdpi-960x540/thl/zzzzz_roller_unlock_center.png frameworks/base/core/res/res/drawable-hdpi-960x540
+cp -rf $foldername/drawable-hdpi-960x540/thl/ic_roller_default.png packages/apps/Settings/res/drawable-hdpi
+fi
+elif [[ $LCD_DENS == "hd720p" ]]; then
+cp -rf $foldername/drawable-xhdpi-1280x720/*.* frameworks/base/core/res/res/drawable-xhdpi-1280x720
+if [[ $outbuf2 == "yes" ]]; then
+cp -rf $foldername/drawable-xhdpi-1280x720/thl/zzzzz_roller_unlock_center.png frameworks/base/core/res/res/drawable-xhdpi-1280x720
+cp -rf $foldername/drawable-xhdpi-1280x720/thl/ic_roller_default.png packages/apps/Settings/res/drawable-hdpi
+fi
+fi
+echo ===================end copy LockScreen images===================
+else
+echo ----- Error: ----- $outbuf folder not exist, pls check in the directory "bird/lockscreen/rollerlock"
+exit
+fi
+fi
+
+#----------------------------------ThL smuggle lock sccreen ywj add begin--------------------------------
+MAKEFILE_COMPILE_VAR=THL_SMUGGLE_LOCKSCREEN
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+foldername=bird/drawable/lockscreen/thl_smuggle_lockscreen
+
+if [ -d $foldername ]; then
+echo ==================start copy LockScreen images==================
+echo thl_smuggle_lockscreen $LCD_DENS
+if [[ $LCD_DENS == "hd720p" ]]; then
+cp -rf $foldername/drawable-xhdpi-1280x720/*.* frameworks/base/core/res/res/drawable
+cp -rf $foldername/setting_icon/*.* packages/apps/BirdGlowPadViewSettings/res/drawable
+elif [[ $LCD_DENS == "qhd" ]]; then
+cp -rf $foldername/drawable-hdpi-960x540/*.* frameworks/base/core/res/res/drawable
+cp -rf $foldername/setting_icon/*.* packages/apps/BirdGlowPadViewSettings/res/drawable
+fi
+
+echo ===================end copy LockScreen images===================
+else
+echo ----- Error: ----- $outbuf folder not exist, pls check in the directory "bird/drawable/lockscreen/thl_smuggle_lockscreen"
+fi
+fi
+#----------------------------------ThL smuggle lock sccreen ywj add end--------------------------------
+
+
+
+#----------------------------------rollerlock lvhuaiyi add--------------------------------
+MAKEFILE_COMPILE_VAR=BIRD_YINLIANTONG_ROLLER_LOCKSCREEN
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+foldername=bird/drawable/lockscreen/rollerlock_yinliantong
+if [ -d $foldername ]; then
+echo ==================start copy LockScreen images==================
+echo rollerlock_yinliantong $LCD_DENS
+if [[ $LCD_DENS == "wvga" ]]; then
+cp -rf $foldername/drawable-hdpi/*.* frameworks/base/core/res/res/drawable-hdpi
+elif [[ $LCD_DENS == "fwvga" ]]; then
+cp -rf $foldername/drawable-hdpi/*.* frameworks/base/core/res/res/drawable-hdpi
+cp -rf $foldername/drawable-hdpi/ic_roller_default.png packages/apps/Settings/res/drawable-hdpi
+elif [[ $LCD_DENS == "hvga" ]]; then
+cp -rf $foldername/drawable-mdpi/*.* frameworks/base/core/res/res/drawable-mdpi
+elif [[ $LCD_DENS == "wqvga" ]]; then
+cp -rf $foldername/drawable-mdpi/*.* frameworks/base/core/res/res/drawable-mdpi
+elif [[ $LCD_DENS == "qhd" ]]; then
+cp -rf $foldername/drawable-hdpi-960x540/*.* frameworks/base/core/res/res/drawable-hdpi-960x540
+fi
+echo ===================end copy LockScreen images===================
+else
+echo ----- Error: ----- $outbuf folder not exist, pls check in the directory "bird/lockscreen/rollerlock"
+exit
+fi
+fi
+
+#----------------------------------alarm image lvhuaiyi add--------------------------------
+MAKEFILE_COMPILE_VAR=BIRD_ALARM_DESCRIPTION
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+foldername=bird/alarm
+if [ -d $foldername ]; then
+echo ==================start copy alarm images==================
+echo LCD = $LCD_DENS
+if [[ $LCD_DENS == "wvga" ]]; then
+cp -rf $foldername/deskclock/drawable-hdpi/*.* packages/apps/DeskClock/res/drawable-hdpi
+cp -rf $foldername/deskclock/drawable-zh-rCN-hdpi packages/apps/DeskClock/res
+cp -rf $foldername/deskclock/drawable-zh-rTW-hdpi packages/apps/DeskClock/res
+cp -rf $foldername/power_alarm/drawable-hdpi/*.* mediatek/frameworks/base/res/res/drawable-hdpi
+cp -rf $foldername/power_alarm/drawable-zh-rCN-hdpi mediatek/frameworks/base/res/res
+cp -rf $foldername/power_alarm/drawable-zh-rTW-hdpi mediatek/frameworks/base/res/res
+elif [[ $LCD_DENS == "fwvga" ]]; then
+cp -rf $foldername/deskclock/drawable-hdpi/*.* packages/apps/DeskClock/res/drawable-hdpi
+cp -rf $foldername/deskclock/drawable-zh-rCN-hdpi packages/apps/DeskClock/res
+cp -rf $foldername/deskclock/drawable-zh-rTW-hdpi packages/apps/DeskClock/res
+cp -rf $foldername/power_alarm/drawable-hdpi/*.* mediatek/frameworks/base/res/res/drawable-hdpi
+cp -rf $foldername/power_alarm/drawable-zh-rCN-hdpi mediatek/frameworks/base/res/res
+cp -rf $foldername/power_alarm/drawable-zh-rTW-hdpi mediatek/frameworks/base/res/res
+elif [[ $LCD_DENS == "hvga" ]]; then
+cp -rf $foldername/deskclock/drawable-mdpi/*.* packages/apps/DeskClock/res/drawable-mdpi
+cp -rf $foldername/deskclock/drawable-zh-rCN-mdpi packages/apps/DeskClock/res
+cp -rf $foldername/deskclock/drawable-zh-rTW-mdpi packages/apps/DeskClock/res
+cp -rf $foldername/power_alarm/drawable-mdpi/*.* mediatek/frameworks/base/res/res/drawable-mdpi
+cp -rf $foldername/power_alarm/drawable-zh-rCN-mdpi mediatek/frameworks/base/res/res
+cp -rf $foldername/power_alarm/drawable-zh-rTW-mdpi mediatek/frameworks/base/res/res
+elif [[ $LCD_DENS == "wqvga" ]]; then
+cp -rf $foldername/deskclock/drawable-mdpi/*.* packages/apps/DeskClock/res/drawable-mdpi
+cp -rf $foldername/deskclock/drawable-zh-rCN-mdpi packages/apps/DeskClock/res
+cp -rf $foldername/deskclock/drawable-zh-rTW-mdpi packages/apps/DeskClock/res
+cp -rf $foldername/power_alarm/drawable-mdpi/*.* mediatek/frameworks/base/res/res/drawable-mdpi
+cp -rf $foldername/power_alarm/drawable-zh-rCN-mdpi mediatek/frameworks/base/res/res
+cp -rf $foldername/power_alarm/drawable-zh-rTW-mdpi mediatek/frameworks/base/res/res
+elif [[ $LCD_DENS == "qhd" ]]; then
+cp -rf $foldername/deskclock/drawable-hdpi/*.* packages/apps/DeskClock/res/drawable-hdpi
+cp -rf $foldername/deskclock/drawable-zh-rCN-hdpi packages/apps/DeskClock/res
+cp -rf $foldername/deskclock/drawable-zh-rTW-hdpi packages/apps/DeskClock/res
+cp -rf $foldername/power_alarm/drawable-hdpi/*.* mediatek/frameworks/base/res/res/drawable-hdpi
+cp -rf $foldername/power_alarm/drawable-zh-rCN-hdpi mediatek/frameworks/base/res/res
+cp -rf $foldername/power_alarm/drawable-zh-rTW-hdpi mediatek/frameworks/base/res/res
+elif [[ $LCD_DENS == "hd720p" ]]; then
+cp -rf $foldername/deskclock/drawable-xhdpi/*.* packages/apps/DeskClock/res/drawable-xhdpi
+cp -rf $foldername/deskclock/drawable-zh-rCN-xhdpi packages/apps/DeskClock/res
+cp -rf $foldername/deskclock/drawable-zh-rTW-xhdpi packages/apps/DeskClock/res
+cp -rf $foldername/power_alarm/drawable-xhdpi/*.* mediatek/frameworks/base/res/res/drawable-xhdpi
+cp -rf $foldername/power_alarm/drawable-zh-rCN-xhdpi mediatek/frameworks/base/res/res
+cp -rf $foldername/power_alarm/drawable-zh-rTW-xhdpi mediatek/frameworks/base/res/res
+fi
+echo ===================end copy alarm images===================
+else
+echo ----- Error: ----- $outbuf folder not exist, pls check in the directory "bird/alarm"
+exit
+fi
+fi
+
+#----------------------------------lock dial lvhuaiyi add--------------------------------
+MAKEFILE_COMPILE_VAR=BIRD_ADD_LOCK_DIAL
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp -rf bird/lock_dial/keyguard_glow_pad_view.xml frameworks/base/core/res/res/layout/keyguard_glow_pad_view.xml
+fi
+
+#----------------------------------lock mms sunjunwei add--------------------------------
+MAKEFILE_COMPILE_VAR=BIRD_ADD_LOCK_MMS
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp -rf bird/lock_dial/mms/keyguard_glow_pad_view.xml frameworks/base/core/res/res/layout/keyguard_glow_pad_view.xml
+fi
+
+#----------------------------------lock BATTERY sunjunwei add--------------------------------
+MAKEFILE_COMPILE_VAR=BIRD_LOCKER_BATTERY
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp -rf bird/lock_dial/battery/arrays.xml frameworks/base/core/res/res/values/arrays.xml
+cp -rf bird/lock_dial/battery/ic_lockscreen_handle_pressed.png  frameworks/base/core/res/res/drawable-hdpi/ic_lockscreen_handle_pressed.png
+cp -rf bird/lock_dial/battery/ic_lockscreen_handle_normal.png  frameworks/base/core/res/res/drawable-hdpi/ic_lockscreen_handle_normal.png
+fi
+
+#---------------------------------no GMS project wifi icon yangbinjie add-----------------
+MAKEFILE_COMPILE_VAR=BIRD_NO_GMS_WIFI_ICON
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp -rf bird/drawable/GMS_WIFI/SystemUI/drawable-hdpi/*.* frameworks/base/packages/SystemUI/res/drawable-hdpi
+cp -rf bird/drawable/GMS_WIFI/SystemUI/drawable-mdpi/*.* frameworks/base/packages/SystemUI/res/drawable-mdpi
+cp -rf bird/drawable/GMS_WIFI/SystemUI/drawable-sw600dp-hdpi/*.* frameworks/base/packages/SystemUI/res/drawable-sw600dp-hdpi
+cp -rf bird/drawable/GMS_WIFI/SystemUI/drawable-sw600dp-mdpi/*.* frameworks/base/packages/SystemUI/res/drawable-sw600dp-mdpi
+cp -rf bird/drawable/GMS_WIFI/SystemUI/drawable-sw600dp-xhdpi/*.* frameworks/base/packages/SystemUI/res/drawable-sw600dp-xhdpi
+cp -rf bird/drawable/GMS_WIFI/SystemUI/drawable-xhdpi/*.* frameworks/base/packages/SystemUI/res/drawable-xhdpi
+fi
+
+############################### Theme drawable ##################################
+MAKEFILE_COMPILE_VAR=BIRD_THEME_DRAWABLE
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [ -d bird/drawable/$outbuf ]; then
+cp -rf bird/drawable/$outbuf/frameworks/drawable/default_wallpaper.jpg frameworks/base/core/res/res/drawable/default_wallpaper.jpg
+cp -rf bird/drawable/$outbuf/frameworks/$DrawableType/* frameworks/base/core/res/res/$DrawableType
+if [[ $LCD_DENS == "wvga" ]]||[[ $LCD_DENS == "fwvga" ]]; then
+cp -rf bird/drawable/$outbuf/mediatek/frameworks/themes/res/$DrawableType/* mediatek/source/frameworks/themes/theme-res-slicer/res/$DrawableType
+fi
+if [[ $LCD_DENS == "wvga" ]]; then
+cp -rf bird/drawable/$outbuf/frameworks/drawable-mdpi/* frameworks/base/core/res/res/drawable-mdpi
+elif [[ $LCD_DENS == "qhd" ]]; then
+cp -rf bird/drawable/$outbuf/frameworks/drawable-hdpi/* frameworks/base/core/res/res/drawable-hdpi
+fi
+cp -rf bird/drawable/$outbuf/frameworks/layout/* frameworks/base/core/res/res/layout
+cp -rf bird/drawable/$outbuf/frameworks/drawable/* frameworks/base/core/res/res/drawable/
+cp -rf bird/drawable/$outbuf/frameworks/values/styles.xml frameworks/base/core/res/res/values/styles.xml
+cp -rf bird/drawable/$outbuf/frameworks/values/themes.xml frameworks/base/core/res/res/values/themes.xml
+cp -rf bird/drawable/$outbuf/SystemUI/$DrawableType/* frameworks/base/packages/SystemUI/res/$DrawableType
+
+if [[ $DrawableType = "drawable-hdpi-960x540" ]]; then
+cp -rf bird/drawable/$outbuf/SystemUI/$DrawableType/* frameworks/base/packages/SystemUI/res/drawable-hdpi
+fi
+cp -rf bird/drawable/$outbuf/MusicWidget/$DrawableType/* packages/widgets/MusicWidget/res/$DrawableType
+if [[ $DrawableType = "drawable-hdpi-960x540" ]]; then
+cp -rf bird/drawable/$outbuf/MusicWidget/$DrawableType/* packages/widgets/MusicWidget/res/drawable-hdpi
+fi
+cp -rf bird/drawable/$outbuf/Settings/$DrawableType/* packages/apps/Settings/res/$DrawableType
+if [[ $DrawableType = "drawable-hdpi-960x540" ]]; then
+cp -rf bird/drawable/$outbuf/Settings/$DrawableType/* packages/apps/Settings/res/drawable-hdpi
+fi
+
+
+#cp -rf bird/drawable/$outbuf/SettingsProvider/values/defaults.xml frameworks/base/packages/SettingsProvider/res/values/defaults.xml
+#cp -rf bird/drawable/$outbuf/mediatek/ProfileSettings.java mediatek/source/frameworks/media/audio/java/com/mediatek/audioprofile
+#app icon
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_browser.png packages/apps/Browser/res/$DrawableType/ic_launcher_browser.png
+
+if [[ $DrawableType = "drawable-hdpi-960x540" ]]; then
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_browser.png packages/apps/Browser/res/drawable-hdpi/ic_launcher_browser.png
+fi
+
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_camera.png packages/apps/CameraOpen/res/$DrawableType/ic_launcher_camera.png
+if [[ $DrawableType = "drawable-hdpi-960x540" ]]; then
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_camera.png packages/apps/CameraOpen/res/drawable-hdpi/ic_launcher_camera.png
+fi
+
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_contacts.png packages/apps/Contacts/res/$DrawableType/ic_launcher_contacts.png
+if [[ $DrawableType = "drawable-hdpi-960x540" ]]; then
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_contacts.png packages/apps/Contacts/res/drawable-hdpi/ic_launcher_contacts.png
+fi
+
+
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_contacts_calllog.png packages/apps/Contacts/res/drawable-hdpi-finger/ic_launcher_contacts_calllog.png
+
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_phone.png packages/apps/Contacts/res/$DrawableType/ic_launcher_phone.png
+if [[ $DrawableType = "drawable-hdpi-960x540" ]]; then
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_phone.png packages/apps/Contacts/res/drawable-hdpi/ic_launcher_phone.png
+fi
+
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_smsmms.png packages/apps/Mms/res/$DrawableType/ic_launcher_smsmms.png
+if [[ $DrawableType = "drawable-hdpi-960x540" ]]; then
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_smsmms.png packages/apps/Mms/res/drawable-hdpi/ic_launcher_smsmms.png
+fi
+
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_email.png packages/apps/Email/res/$DrawableType/icon.png
+if [[ $DrawableType = "drawable-hdpi-960x540" ]]; then
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_email.png packages/apps/Email/res/drawable-hdpi/icon.png
+fi
+
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_fm_radio.png mediatek/source/packages/FMRadio/res/$DrawableType/ic_launcher_temp.png
+if [[ $DrawableType = "drawable-hdpi-960x540" ]]; then
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_fm_radio.png mediatek/source/packages/FMRadio/res/drawable-hdpi/ic_launcher_temp.png
+fi
+
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_calculator.png packages/apps/Calculator/res/$DrawableType/icon.png
+if [[ $DrawableType = "drawable-hdpi-960x540" ]]; then
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_calculator.png packages/apps/Calculator/res/drawable-hdpi/icon.png
+fi
+
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_soundrecorder.png packages/apps/SoundRecorder/res/$DrawableType/ic_launcher_soundrecorder.png
+if [[ $DrawableType = "drawable-hdpi-960x540" ]]; then
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_soundrecorder.png packages/apps/SoundRecorder/res/drawable-hdpi/ic_launcher_soundrecorder.png
+fi
+
+
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_calendar.png packages/apps/Calendar/res/$DrawableType/app_icon.png
+if [[ $DrawableType = "drawable-hdpi-960x540" ]]; then
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_calendar.png packages/apps/Calendar/res/drawable-hdpi/app_icon.png
+fi
+
+
+#cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_settings.png packages/apps/Settings/res/$DrawableType/ic_launcher_settings.png
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_alarmclock.png packages/apps/DeskClock/res/$DrawableType/ic_launcher_alarmclock.png
+if [[ $DrawableType = "drawable-hdpi-960x540" ]]; then
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_alarmclock.png packages/apps/DeskClock/res/drawable-hdpi/ic_launcher_alarmclock.png
+fi
+
+
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_music.png packages/apps/Music/res/$DrawableType/app_music.png
+if [[ $DrawableType = "drawable-hdpi-960x540" ]]; then
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_music.png packages/apps/Music/res/drawable-hdpi/app_music.png
+fi
+
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_search.png packages/apps/QuickSearchBox/res/$DrawableType/search_app_icon.png
+if [[ $DrawableType = "drawable-hdpi-960x540" ]]; then
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_search.png packages/apps/QuickSearchBox/res/drawable-hdpi/search_app_icon.png
+fi
+
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_gallery.png packages/apps/Gallery3D/res/$DrawableType/icon.png
+if [[ $DrawableType = "drawable-hdpi-960x540" ]]; then
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_gallery.png packages/apps/Gallery3D/res/drawable-hdpi/icon.png
+fi
+
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_gallery.png packages/apps/Gallery/res/$DrawableType/ic_launcher_gallery.png
+if [[ $DrawableType = "drawable-hdpi-960x540" ]]; then
+cp -rf bird/drawable/$outbuf/AppsIcon/$DrawableType/ic_launcher_gallery.png packages/apps/Gallery/res/drawable-hdpi/ic_launcher_gallery.png
+fi
+
+#app icon
+echo BIRD_THEME_DRAWABLE=$outbuf
+echo DrawableType=$DrawableType
+echo copy bird/drawable/$outbuf
+
+else
+echo ----- Warning: ----- BIRD_THEME_DRAWABLE=$outbuf not exist, pls check in the directory "bird/drawable"
+fi
+
+############################### BIRD_LIVE_WALLPAPER begin add by ywj for live wallpaper cfg##################################
+
+MAKEFILE_COMPILE_VAR=BIRD_LIVE_WALLPAPER_CFG
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "T56A" ]]; then
+bird/wallpaper/LiveWallpaeConfig/$outbuf/Manifest/AndroidManifest.xml packages/apps
+cp -rf bird/wallpaper/LiveWallpaeConfig/T56A/Manifest/AndroidManifest.xml packages/wallpapers/Basic/AndroidManifest.xml
+fi
+
+############################### BIRD_LIVE_WALLPAPER end add by ywj for live wallpaper cfg##################################
+
+############################### BIRD_MENU_ORDER ##################################
+
+#lvhuaiyi 20121019
+MAKEFILE_COMPILE_VAR=BIRD_MENU_ORDER
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp -rf bird/theme/menu_order/default_toppackage.xml packages/apps/Launcher2/res/xml/default_toppackage.xml
+fi
+
+#lvhuaiyi 20121019
+MAKEFILE_COMPILE_VAR=BIRD_HOME_PAGE_ORDER
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp -rf bird/theme/home_page_order/default_workspace.xml packages/apps/Launcher2/res/xml/default_workspace.xml
+fi
+
+#lvhuaiyi 20121019
+MAKEFILE_COMPILE_VAR=BIRD_HOME_PAGE_ORDER_H8
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp -rf bird/theme/home_page_order/H8/default_workspace.xml packages/apps/Launcher2/res/xml/default_workspace.xml
+fi
+
+#lvhuaiyi 20121019
+MAKEFILE_COMPILE_VAR=BIRD_HOME_PAGE_ORDER_V9
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp -rf bird/theme/home_page_order/V9/default_workspace.xml packages/apps/Launcher2/res/xml/default_workspace.xml
+fi
+
+#lvhuaiyi 20121019
+MAKEFILE_COMPILE_VAR=BIRD_HOME_PAGE_ORDER_KLT3061_MUFOT
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp -rf bird/theme/home_page_order/KLT3061_MUFOT/default_workspace.xml packages/apps/Launcher2/res/xml/default_workspace.xml
+fi
+
+#lvhuaiyi 20121019
+MAKEFILE_COMPILE_VAR=BIRD_HOME_PAGE_ORDER_P5B
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp -rf bird/theme/home_page_order/P5B/default_workspace.xml packages/apps/LauncherDoov/res/xml/default_workspace.xml
+fi
+
+#lvhuaiyi 20121019
+MAKEFILE_COMPILE_VAR=BIRD_HOME_PAGE_ORDER_TX025
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp -rf bird/theme/home_page_order/TX025/default_workspace.xml packages/apps/LauncherDoov/res/xml/default_workspace.xml
+fi
+
+#lvhuaiyi 20121019
+MAKEFILE_COMPILE_VAR=BIRD_HOME_PAGE_ORDER_T9600C
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp -rf bird/theme/home_page_order/T9600C/default_workspace.xml packages/apps/LauncherDoov/res/xml/default_workspace.xml
+fi
+
+#dinghongzhen 20130821
+MAKEFILE_COMPILE_VAR=BIRD_HOME_PAGE_ORDER_V26E_DTC
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp -rf bird/theme/home_page_order/V26E_DTC/default_workspace.xml packages/apps/LauncherDoov/res/xml/default_workspace.xml
+fi
+
+#dinghongzhen 20130923
+MAKEFILE_COMPILE_VAR=BIRD_HOME_PAGE_ORDER_CE27
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp -rf bird/theme/home_page_order/CE27/default_workspace.xml packages/apps/LauncherDoov/res/xml/default_workspace.xml
+fi
+
+############################### Extra wallpapers ##################################
+
+MAKEFILE_COMPILE_VAR=BIRD_EXTRA_WALLPAPERS
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+
+echo BIRD_EXTRA_WALLPAPERS $outbuf 
+
+if [[ $outbuf == "BIRD_EXTRA_WALLPAPERS" ]]||[[ $outbuf = "UE_WALLPAPERS1" ]];  then
+	outbuf=UE_WALLPAPERS1	
+foldername=bird/wallpaper/extra_wallpapers/$outbuf
+echo foldername $foldername 
+if [ -e $foldername ]; then
+echo ==================start copy DEFAULT wallpapers==================  
+rm -r packages/apps/Launcher2/res/drawable-sw720dp-nodpi/wallpaper*.jpg
+rm -r packages/apps/Launcher2/res/drawable-sw600dp-nodpi/wallpaper*.jpg
+rm -r packages/apps/Launcher2/res/drawable-nodpi/wallpaper*.jpg
+rm -r packages/apps/Launcher2/res/drawable-xhdpi/wallpaper*.jpg
+rm -r mediatek/custom/common/resource_overlay/LCA_rom/packages/apps/Launcher2/res/drawable-nodpi/wallpaper*.jpg
+rm -r packages/apps/Launcher2/res/values-mdpi/wallpapers.xml
+rm -r packages/apps/Launcher2/res/values-sw600dp/wallpapers.xml
+rm -r packages/apps/Launcher2/res/values-sw720dp/wallpapers.xml
+
+rm -r packages/apps/ThemeApkManager/res/values/extra_wallpapers.xml
+rm -r packages/apps/ThemeApkManager/res/values/wallpapers.xml
+rm -r packages/apps/ThemeApkManager/res/drawable-nodpi/wallpaper*.jpg
+echo LCD_DENS $LCD_DENS 
+if [[ $LCD_DENS == "wvga" ]]; then
+cp -rf $foldername/wvga/*.jpg packages/apps/Launcher2/res/drawable-nodpi
+cp -rf $foldername/wvga/*.jpg packages/apps/SenseLauncher/res/drawable-hdpi
+cp -rf $foldername/wvga/*.jpg packages/apps/SenseLauncherG11/res/drawable-hdpi
+cp -rf $foldername/wvga/*.jpg packages/apps/LauncherPlus/res/drawable-hdpi
+cp -rf $foldername/wvga/*.jpg mediatek/source/packages/MtkWallPaper/res/drawable-hdpi
+cp -rf $foldername/wvga/*.jpg packages/apps/LauncherCCPO/res/drawable-hdpi
+cp -rf $foldername/wvga/*.jpg packages/apps/LauncherHyundai/res/drawable-nodpi
+cp -rf $foldername/wvga/*.jpg packages/apps/ThemeApkManager/res/drawable-nodpi
+
+cp -rf $foldername/wvga/*.xml packages/apps/Launcher2/res/values
+cp -rf $foldername/wvga/*.xml packages/apps/SenseLauncher/res/values
+cp -rf $foldername/wvga/*.xml packages/apps/LauncherPlus/res/values
+cp -rf $foldername/wvga/*.xml mediatek/source/packages/MtkWallPaper/res/values
+cp -rf $foldername/wvga/*.xml packages/apps/LauncherHyundai/res/drawable-nodpi
+cp -rf $foldername/wvga/*.xml packages/apps/ThemeApkManager/res/values
+
+elif [[ $LCD_DENS == "fwvga" ]]; then
+cp -rf $foldername/fwvga/*.jpg packages/apps/Launcher2/res/drawable-nodpi
+cp -rf $foldername/fwvga/*.jpg packages/apps/SenseLauncher/res/drawable-hdpi
+cp -rf $foldername/fwvga/*.jpg packages/apps/SenseLauncherG11/res/drawable-hdpi
+cp -rf $foldername/fwvga/*.jpg packages/apps/LauncherPlus/res/drawable-hdpi
+cp -rf $foldername/fwvga/*.jpg mediatek/source/packages/MtkWallPaper/res/drawable-hdpi
+cp -rf $foldername/fwvga/*.jpg packages/apps/LauncherCCPO/res/drawable-hdpi
+cp -rf $foldername/fwvga/*.jpg packages/apps/LauncherHyundai/res/drawable-nodpi
+cp -rf $foldername/fwvga/*.jpg packages/apps/ThemeApkManager/res/drawable-nodpi
+
+cp -rf $foldername/fwvga/*.xml packages/apps/Launcher2/res/values
+cp -rf $foldername/fwvga/*.xml packages/apps/SenseLauncher/res/values
+cp -rf $foldername/fwvga/*.xml packages/apps/LauncherPlus/res/values
+cp -rf $foldername/fwvga/*.xml mediatek/source/packages/MtkWallPaper/res/values
+cp -rf $foldername/fwvga/*.xml packages/apps/LauncherHyundai/res/drawable-nodpi
+cp -rf $foldername/fwvga/*.xml packages/apps/ThemeApkManager/res/values
+
+elif [[ $LCD_DENS == "hvga" ]]; then
+cp -rf $foldername/hvga/*.jpg packages/apps/Launcher2/res/drawable-nodpi
+cp -rf $foldername/hvga/*.jpg packages/apps/SenseLauncher/res/drawable-mdpi
+cp -rf $foldername/hvga/*.jpg packages/apps/LauncherPlus/res/drawable-mdpi
+cp -rf $foldername/hvga/*.jpg mediatek/source/packages/MtkWallPaper/res/drawable-mdpi
+cp -rf $foldername/hvga/*.jpg packages/apps/ThemeApkManager/res/drawable-nodpi
+
+cp -rf $foldername/hvga/*.xml packages/apps/Launcher2/res/values
+cp -rf $foldername/hvga/*.xml packages/apps/SenseLauncher/res/values
+cp -rf $foldername/hvga/*.xml packages/apps/LauncherPlus/res/values
+cp -rf $foldername/hvga/*.xml mediatek/source/packages/MtkWallPaper/res/values
+cp -rf $foldername/hvga/*.xml packages/apps/LauncherHyundai/res/drawable-nodpi
+cp -rf $foldername/hvga/*.xml packages/apps/ThemeApkManager/res/values
+
+elif [[ $LCD_DENS == "wqvga" ]]; then
+cp -rf $foldername/hvga/*.jpg packages/apps/Launcher2/res/drawable-nodpi
+cp -rf $foldername/hvga/*.jpg packages/apps/SenseLauncher/res/drawable-mdpi
+cp -rf $foldername/hvga/*.jpg packages/apps/LauncherPlus/res/drawable-mdpi
+cp -rf $foldername/hvga/*.jpg mediatek/source/packages/MtkWallPaper/res/drawable-mdpi
+cp -rf $foldername/hvga/*.jpg packages/apps/ThemeApkManager/res/drawable-nodpi
+
+cp -rf $foldername/hvga/*.xml packages/apps/Launcher2/res/values
+cp -rf $foldername/hvga/*.xml packages/apps/SenseLauncher/res/values
+cp -rf $foldername/hvga/*.xml packages/apps/LauncherPlus/res/values
+cp -rf $foldername/hvga/*.xml mediatek/source/packages/MtkWallPaper/res/values
+cp -rf $foldername/hvga/*.xml packages/apps/LauncherHyundai/res/drawable-nodpi
+cp -rf $foldername/hvga/*.xml packages/apps/ThemeApkManager/res/values
+
+elif [[ $LCD_DENS == "qvga" ]]; then
+cp -rf $foldername/hvga/.jpg packages/apps/Launcher2/res/drawable-nodpi
+cp -rf $foldername/hvga/.jpg packages/apps/SenseLauncher/res/drawable-ldpi
+cp -rf $foldername/hvga/.jpg packages/apps/LauncherPlus/res/drawable-ldpi
+cp -rf $foldername/hvga/.jpg packages/apps/MtkWallPaper/res/drawable-ldpi
+cp -rf $foldername/hvga/.jpg packages/apps/ThemeApkManager/res/drawable-nodpi
+
+cp -rf $foldername/hvga/*.xml packages/apps/Launcher2/res/values
+cp -rf $foldername/hvga/*.xml packages/apps/SenseLauncher/res/values
+cp -rf $foldername/hvga/*.xml packages/apps/LauncherPlus/res/values
+cp -rf $foldername/hvga/*.xml mediatek/source/packages/MtkWallPaper/res/values
+cp -rf $foldername/hvga/*.xml packages/apps/LauncherHyundai/res/drawable-nodpi
+cp -rf $foldername/hvga/*.xml packages/apps/ThemeApkManager/res/values
+
+elif [[ $LCD_DENS == "qhd" ]]; then
+cp -rf $foldername/qhd/*.jpg packages/apps/LauncherCJ/res/drawable-hdpi
+cp -rf $foldername/qhd/*.jpg packages/apps/Launcher2/res/drawable-nodpi
+cp -rf $foldername/qhd/*.jpg packages/apps/LauncherHyundai/res/drawable-nodpi
+cp -rf $foldername/qhd/*.jpg packages/apps/ThemeApkManager/res/drawable-nodpi
+
+cp -rf $foldername/qhd/*.xml packages/apps/Launcher2/res/values
+cp -rf $foldername/qhd/*.xml packages/apps/SenseLauncher/res/values
+cp -rf $foldername/qhd/*.xml packages/apps/LauncherPlus/res/values
+cp -rf $foldername/qhd/*.xml mediatek/source/packages/MtkWallPaper/res/values
+cp -rf $foldername/qhd/*.xml packages/apps/LauncherHyundai/res/drawable-nodpi
+cp -rf $foldername/qhd/*.xml packages/apps/ThemeApkManager/res/values
+
+elif [[ $LCD_DENS == "hd720p" ]]; then
+cp -rf $foldername/HD/*.jpg packages/apps/Launcher2/res/drawable-nodpi
+cp -rf $foldername/HD/*.jpg packages/apps/LauncherOpen/res/drawable-nodpi
+cp -rf $foldername/HD/*.jpg packages/apps/LauncherHyundai/res/drawable-nodpi
+cp -rf $foldername/HD/*.jpg packages/apps/ThemeApkManager/res/drawable-nodpi
+
+cp -rf $foldername/HD/*.xml packages/apps/Launcher2/res/values
+cp -rf $foldername/HD/*.xml packages/apps/SenseLauncher/res/values
+cp -rf $foldername/HD/*.xml packages/apps/LauncherPlus/res/values
+cp -rf $foldername/HD/*.xml mediatek/source/packages/MtkWallPaper/res/values
+cp -rf $foldername/HD/*.xml packages/apps/LauncherHyundai/res/drawable-nodpi
+cp -rf $foldername/HD/*.xml packages/apps/ThemeApkManager/res/values
+
+fi
+
+echo ==================end copy  DEFAULT wallpapers==================
+
+
+fi
+else
+foldername=bird/wallpaper/extra_wallpapers/$outbuf
+if [ -e $foldername ]; then
+echo ==================start copy extra_wallpapers==================
+rm -r packages/apps/Launcher2/res/drawable-sw720dp-nodpi/wallpaper*.jpg
+rm -r packages/apps/Launcher2/res/drawable-sw600dp-nodpi/wallpaper*.jpg
+rm -r packages/apps/Launcher2/res/drawable-nodpi/wallpaper*.jpg
+rm -r packages/apps/Launcher2/res/drawable-xhdpi/wallpaper*.jpg
+rm -r mediatek/custom/common/resource_overlay/LCA_rom/packages/apps/Launcher2/res/drawable-nodpi/wallpaper*.jpg
+rm -r packages/apps/Launcher2/res/values-mdpi/wallpapers.xml
+rm -r packages/apps/Launcher2/res/values-sw600dp/wallpapers.xml
+rm -r packages/apps/Launcher2/res/values-sw720dp/wallpapers.xml
+
+rm -r packages/apps/LauncherDoov/res/drawable-sw720dp-nodpi/wallpaper*.jpg
+rm -r packages/apps/LauncherDoov/res/drawable-sw600dp-nodpi/wallpaper*.jpg
+rm -r packages/apps/LauncherDoov/res/drawable-nodpi/wallpaper*.jpg
+rm -r packages/apps/LauncherDoov/res/drawable-xhdpi/wallpaper*.jpg
+rm -r packages/apps/LauncherDoov/res/values-mdpi/wallpapers.xml
+rm -r packages/apps/LauncherDoov/res/values-sw600dp/wallpapers.xml
+rm -r packages/apps/LauncherDoov/res/values-sw720dp/wallpapers.xml
+
+mkdir packages/apps/LauncherBerry/res/drawable-nodpi
+rm -r packages/apps/LauncherBerry/res/values/extra_wallpapers.xml
+rm -r packages/apps/LauncherBerry/res/values-mdpi/wallpapers.xml
+rm -r packages/apps/LauncherBerry/res/values-ldpi/wallpapers.xml
+rm -r packages/apps/LauncherBerry/res/values-hdpi/wallpapers.xml
+
+rm -r packages/apps/ThemeApkManager/res/values/extra_wallpapers.xml
+rm -r packages/apps/ThemeApkManager/res/values/wallpapers.xml
+rm -r packages/apps/ThemeApkManager/res/drawable-nodpi/wallpaper*.jpg
+
+echo $LCD_DENS
+if [[ $LCD_DENS == "wvga" ]]; then
+cp -rf $foldername/drawable-hdpi/* packages/apps/Launcher2/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/SenseLauncher/res/drawable-hdpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/SenseLauncherG11/res/drawable-hdpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherPlus/res/drawable-hdpi
+cp -rf $foldername/drawable-hdpi/* mediatek/source/packages/MtkWallPaper/res/drawable-hdpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherCCPO/res/drawable-hdpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherHyundai/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherDoov/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherBerry/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/ThemeApkManager/res/drawable-nodpi
+elif [[ $LCD_DENS == "fwvga" ]]; then
+cp -rf $foldername/drawable-hdpi/* packages/apps/Launcher2/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/SenseLauncher/res/drawable-hdpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/SenseLauncherG11/res/drawable-hdpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherPlus/res/drawable-hdpi
+cp -rf $foldername/drawable-hdpi/* mediatek/source/packages/MtkWallPaper/res/drawable-hdpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherCCPO/res/drawable-hdpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherHyundai/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherDoov/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherBerry/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/ThemeApkManager/res/drawable-nodpi
+elif [[ $LCD_DENS == "hvga" ]]; then
+cp -rf $foldername/drawable-mdpi/* packages/apps/Launcher2/res/drawable-mdpi
+cp -rf $foldername/drawable-mdpi/* packages/apps/SenseLauncher/res/drawable-mdpi
+cp -rf $foldername/drawable-mdpi/* packages/apps/LauncherPlus/res/drawable-mdpi
+cp -rf $foldername/drawable-mdpi/* mediatek/source/packages/MtkWallPaper/res/drawable-mdpi
+cp -rf $foldername/drawable-mdpi/* packages/apps/LauncherDoov/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherBerry/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/ThemeApkManager/res/drawable-nodpi
+elif [[ $LCD_DENS == "wqvga" ]]; then
+cp -rf $foldername/drawable-ldpi/* packages/apps/Launcher2/res/drawable-mdpi
+cp -rf $foldername/drawable-ldpi/* packages/apps/SenseLauncher/res/drawable-mdpi
+cp -rf $foldername/drawable-ldpi/* packages/apps/LauncherPlus/res/drawable-mdpi
+cp -rf $foldername/drawable-ldpi/* mediatek/source/packages/MtkWallPaper/res/drawable-mdpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/ThemeApkManager/res/drawable-nodpi
+elif [[ $LCD_DENS == "qvga" ]]; then
+cp -rf $foldername/drawable-mdpi/* packages/apps/Launcher2/res/drawable-mdpi
+cp -rf $foldername/drawable-mdpi/* packages/apps/SenseLauncher/res/drawable-mdpi
+cp -rf $foldername/drawable-mdpi/* packages/apps/LauncherPlus/res/drawable-mdpi
+cp -rf $foldername/drawable-mdpi/* mediatek/source/packages/MtkWallPaper/res/drawable-mdpi
+cp -rf $foldername/drawable-mdpi/* packages/apps/LauncherDoov/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherBerry/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/ThemeApkManager/res/drawable-nodpi
+elif [[ $LCD_DENS == "qhd" ]]; then
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherCJ/res/drawable-hdpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/Launcher2/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherHyundai/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherDoov/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherBerry/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/ThemeApkManager/res/drawable-nodpi
+elif [[ $LCD_DENS == "hd720p" ]]; then
+cp -rf $foldername/drawable-hdpi/* packages/apps/Launcher2/res/drawable-xhdpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherDoov/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherBerry/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/ThemeApkManager/res/drawable-nodpi
+else
+cp -rf $foldername/drawable-hdpi/* packages/apps/Launcher2/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherOpen/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherDoov/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/LauncherBerry/res/drawable-nodpi
+cp -rf $foldername/drawable-hdpi/* packages/apps/ThemeApkManager/res/drawable-nodpi
+fi
+
+cp -rf $foldername/values/* packages/apps/Launcher2/res/values
+cp -rf $foldername/values/* packages/apps/LauncherDoov/res/values
+cp -rf $foldername/values/* packages/apps/SenseLauncher/res/values
+cp -rf $foldername/values/* packages/apps/LauncherPlus/res/values
+cp -rf $foldername/values/* mediatek/source/packages/MtkWallPaper/res/values
+cp -rf $foldername/values/* packages/apps/LauncherHyundai/res/drawable-nodpi
+cp -rf $foldername/values/* packages/apps/LauncherBerry/res/values
+cp -rf $foldername/values/* packages/apps/ThemeApkManager/res/values
+echo ==================end copy extra_wallpapers====================
+else
+echo ----- Warning: ----- $outbuf folder not exist, pls check in the directory "bird/wallpaper/extra_wallpapers"
+echo ----- error: --- extra_wallpapers -- $foldername not exist, pls check in the directory $foldername
+exit
+fi
+fi
+############################### end Extra wallpapers ##################################
+
+############################### begin  Lockwallpapers,sunjunwei ##################################
+MAKEFILE_COMPILE_VAR=BIRD_LOCKSCREEN_WALLPAPER
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+echo BIRD_LOCKSCREEN_WALLPAPER=$outbuf
+if [[ $outbuf  == "yes" ]]; then
+
+MAKEFILE_COMPILE_VAR=BIRD_LIGHTING_LOCKER
+lightlocker=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+MAKEFILE_COMPILE_VAR=BIRD_PARTICLE_LOCKER
+particlelocker=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $lightlocker  == "yes" ]]; then
+echo BIRD_LIGHTING_LOCKER=yes
+echo  ---warning---you need trun off BIRD_LIGHTING_LOCKER or trun off BIRD_LOCKSCREEN_WALLPAPER
+exit
+fi
+if [[ $particlelocker  == "yes" ]]; then
+echo BIRD_PARTICLE_LOCKER=yes
+echo  ---warning---you need trun off BIRD_PARTICLE_LOCKER or trun off BIRD_LOCKSCREEN_WALLPAPER
+exit
+fi
+
+MAKEFILE_COMPILE_VAR1=BIRD_EXTRA_LOCK_WALLPAPERS
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR1)
+echo BIRD_EXTRA_LOCK_WALLPAPERS $outbuf 
+if [[ $outbuf == "BIRD_EXTRA_LOCK_WALLPAPERS" ]]||[[ $outbuf = "UE_LOCKWALLPAPERS" ]];  then
+	outbuf=UE_LOCKWALLPAPERS	
+	foldername=bird/wallpaper/extra_lockwallpapers/$outbuf
+	echo foldername $foldername 
+rm -r packages/apps/ThemeApkManager/res/drawable-nodpi/lock_wallpaper*.jpg
+rm -r packages/apps/ThemeApkManager/res/drawable-nodpi/lock_wallpaper*.png
+rm -r packages/apps/ThemeApkManager/res/values/extra_lock_wallpapers.xml
+rm -r packages/apps/ThemeApkManager/res/values/lock_wallpapers.xml
+echo ==================start copy default_lockwallpapers==================  
+echo ===LCD_DENS $LCD_DENS======
+if [[ $LCD_DENS == "wvga" ]]; then
+cp -rf $foldername/wvga/*.jpg packages/apps/ThemeApkManager/res/drawable-nodpi
+cp -rf $foldername/wvga/*.png packages/apps/ThemeApkManager/res/drawable-nodpi
+cp -rf $foldername/wvga/*.xml packages/apps/ThemeApkManager/res/values
+elif [[ $LCD_DENS == "fwvga" ]]; then
+cp -rf $foldername/fwvga/*.jpg packages/apps/ThemeApkManager/res/drawable-nodpi
+cp -rf $foldername/fwvga/*.png packages/apps/ThemeApkManager/res/drawable-nodpi
+cp -rf $foldername/fwvga/*.xml packages/apps/ThemeApkManager/res/values
+elif [[ $LCD_DENS == "qhd" ]]; then
+cp -rf $foldername/qhd/*.jpg packages/apps/ThemeApkManager/res/drawable-nodpi
+cp -rf $foldername/qhd/*.png packages/apps/ThemeApkManager/res/drawable-nodpi
+cp -rf $foldername/qhd/*.xml packages/apps/ThemeApkManager/res/values
+elif [[ $LCD_DENS == "hd720p" ]]; then
+cp -rf $foldername/HD/*.jpg packages/apps/ThemeApkManager/res/drawable-nodpi
+cp -rf $foldername/HD/*.png packages/apps/ThemeApkManager/res/drawable-nodpi
+cp -rf $foldername/HD/*.xml packages/apps/ThemeApkManager/res/values
+else
+echo LCD_DENS=$LCD_DENS,no default lockscreen wallpapers,you may need set BIRD_EXTRA_LOCK_WALLPAPERS,or you can call sunjunwei
+exit
+fi
+echo ==================end copy default_lockwallpapers================== 
+else
+foldername=bird/wallpaper/extra_lockwallpapers/$outbuf
+echo foldername $foldername
+if [ ! -e $foldername ];then
+echo =================Please check. File:foldername is not exist======
+exit
+fi
+echo ==================start copy lockwallpapers==================  
+rm -r packages/apps/ThemeApkManager/res/drawable-nodpi/lock_wallpaper*.jpg
+rm -r packages/apps/ThemeApkManager/res/drawable-nodpi/lock_wallpaper*.png
+rm -r packages/apps/ThemeApkManager/res/values/extra_lock_wallpapers.xml
+rm -r packages/apps/ThemeApkManager/res/values/lock_wallpapers.xml
+cp -rf $foldername/drawable/*.jpg packages/apps/ThemeApkManager/res/drawable-nodpi
+cp -rf $foldername/drawable/*.png packages/apps/ThemeApkManager/res/drawable-nodpi
+cp -rf $foldername/values/*.xml packages/apps/ThemeApkManager/res/values
+echo ==================end copy lockwallpapers====================
+fi
+fi
+
+
+############################### end Lockwallpapers ##################################
+
+############################### default lockscreen wallpaper ,chengting,sunjunwei####################################
+MAKEFILE_COMPILE_VAR=BIRD_DEFAULT_LOCK_WALLPAPER
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+WALL_APK_VAR=BIRD_IPHONE_WALLPAPER
+ios7wallpaper=$(./get_string $MAKEFILE_NAME $WALL_APK_VAR)
+
+if [[ $outbuf == "BIRD_DEFAULT_LOCK_WALLPAPER" ]];  then
+	MAKEFILE_COMPILE_VAR1=BIRD_DEFAULT_WALLPAPER
+	outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR1)
+	filename=bird/wallpaper/default_wallpaper/${outbuf}.jpg
+	if [[ $ios7wallpaper == "yes" ]];  then
+	   echo using ios7 lock wallpaper
+	   cp -f $filename packages/apps/IPhoneApp/IPhoneWallpaper/res/drawable-hdpi-854x480/default_lock_wallpaper.png
+	else
+	   cp -f $filename packages/apps/ThemeApkManager/res/drawable-nodpi/default_lock_wallpaper.jpg
+	fi
+else
+	filename=bird/wallpaper/default_lockwallpaper/${outbuf}.jpg
+	if [ ! -e $filename ]; then
+	     echo ----- Warning: ----- $filename not exist, pls check in the directory "bird/wallpaper/default_lockwallpaper"
+	exit
+	fi
+	echo lock screen wallpaper cp succeed!!
+     	if [[ $ios7wallpaper == "yes" ]];  then
+	    echo using ios7 lock wallpaper
+   	    cp -f $filename packages/apps/IPhoneApp/IPhoneWallpaper/res/drawable-hdpi-854x480/default_lock_wallpaper.png
+     	else
+   	    cp -f $filename packages/apps/ThemeApkManager/res/drawable-nodpi/default_lock_wallpaper.jpg
+     	fi
+fi
+############################### end default lockscreen wallpaper ########################################
+
+
+
+############################### APPICON resource config begin ########################################
+MAKEFILE_COMPILE_VAR=BIRD_APPICON_SRC
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+foldername=bird/appicon/$outbuf
+if [ -e $foldername ]; then
+cp -rf bird/appicon/$outbuf/AndroidManifest_prxm.xml mediatek/source/packages/Bluetooth/profiles/prxm/AndroidManifest.xml
+cp -rf bird/appicon/$outbuf/AndroidManifest_hid.xml mediatek/source/packages/Bluetooth/profiles/hid/AndroidManifest.xml
+fi
+
+############################### APPICON resource config end ##########################################
+
+############################### Default appicon resource cofig begin #################################
+MAKEFILE_COMPILE_VAR=BIRD_DEFAULT_APP_ICON_RES
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+foldername=bird/default_appicon/$outbuf
+if [ -e $foldername ]; then
+cp -rf bird/default_appicon/$outbuf/drawable* packages/apps/Launcher2/res/
+cp -rf bird/default_appicon/$outbuf/values/arrays.xml packages/apps/Launcher2/res/values
+fi
+
+############################### Default appicon resource cofig end ###################################
+
+############################### GFive lock copy sunjunwei begin ###################################
+MAKEFILE_COMPILE_VAR=BIRD_GFIVE_LOCK
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp -rf bird/locks/gfive_lock/drawable/*.png frameworks/base/core/res/res/drawable/
+cp -rf bird/locks/gfive_lock/layout/*.xml frameworks/base/core/res/res/layout/
+cp -rf bird/locks/gfive_lock/drawable/zzzz_birdglowpadview_background.png frameworks/base/core/res/res/drawable-xhdpi/zzzz_birdglowpadview_background.png
+fi
+############################### GFive lock copy end ###################################
+############################### GFive lock v2 copy sunjunwei begin ###################################
+MAKEFILE_COMPILE_VAR=BIRD_GFIVE_LOCK_V2
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp -rf bird/locks/gfive_lock_v2/drawable/*.png frameworks/base/core/res/res/drawable/
+cp -rf bird/locks/gfive_lock_v2/drawable-hdpi/*.png frameworks/base/core/res/res/drawable-hdpi/
+cp -rf bird/locks/gfive_lock_v2/layout/*.xml frameworks/base/core/res/res/layout/
+cp -rf bird/locks/gfive_lock_v2/drawable/zzzz_birdglowpadview_background.png frameworks/base/core/res/res/drawable-xhdpi/zzzz_birdglowpadview_background.png
+fi
+############################### GFive lock v2 copy end ###################################
+############################### BIRD_CUSTOM_APP  config begin ########################################
+MAKEFILE_COMPILE_VAR=BIRD_CUSTOM_APP
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+foldername=bird/custom_app/$outbuf
+if [ -e $foldername ]; then
+cp -rf bird/custom_app/$outbuf/alps/ ../
+fi
+############################### BIRD_CUSTOM_APP  config end ##########################################
+#----------------------------------Iphone Statusbar Begin--------------------------------
+MAKEFILE_COMPILE_VAR=BIRD_IPHONE_STATUSBAR
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+foldername=bird/drawable/IPHONE_STATUSBAR
+if [ -d $foldername ]; then
+echo copying Iphone Statusbar resources...
+cp -r $foldername/framework/values/dimens.xml frameworks/base/core/res/res/values/
+if [[ $LCD_DENS == "dvga" ]]; then
+cp -r $foldername/framework/drawable-xhdpi/*.* frameworks/base/core/res/res/drawable-xhdpi/
+elif [[ $LCD_DENS == "fwvga" ]]; then
+cp -r $foldername/framework/drawable-hdpi/*.* frameworks/base/core/res/res/drawable-hdpi/
+else
+cp -r $foldername/framework/drawable-hdpi/*.* frameworks/base/core/res/res/drawable-mdpi/
+fi
+else
+echo ----- Warning: ----- $outbuf folder not exist, pls check in the directory $foldername
+exit
+fi
+fi
+#----------------------------------Iphone Statusbar End--------------------------------
+
+############################### Logo ########################################
+#Battery logo  zhouhuaguo 20110316 begin
+MAKEFILE_COMPILE_VAR=BIRD_BATTERY_LOGO
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+source_folder=bird/logo/${outbuf}_${LCD_DENS}_battery_logo
+dest_folder=mediatek/custom/common/uboot/logo
+if [ ! -d $source_folder ]; then
+echo $source_folder not exist,pls check in the directory $source_folder
+#exit
+else
+cp -f ${source_folder}/${LCD_DENS}_battery.bmp  ${dest_folder}/${LCD_DENS}/${LCD_DENS}_battery.bmp
+cp -f ${source_folder}/${LCD_DENS}_battery1.bmp ${dest_folder}/${LCD_DENS}/${LCD_DENS}_battery1.bmp
+cp -f ${source_folder}/${LCD_DENS}_battery2.bmp ${dest_folder}/${LCD_DENS}/${LCD_DENS}_battery2.bmp
+cp -f ${source_folder}/${LCD_DENS}_battery3.bmp ${dest_folder}/${LCD_DENS}/${LCD_DENS}_battery3.bmp
+cp -f ${source_folder}/${LCD_DENS}_battery4.bmp ${dest_folder}/${LCD_DENS}/${LCD_DENS}_battery4.bmp
+cp -f ${source_folder}/${LCD_DENS}_low_battery.bmp ${dest_folder}/${LCD_DENS}/${LCD_DENS}_low_battery.bmp
+fi
+#Battery logo  zhouhuaguo 20110316 end
+
+# First logo
+MAKEFILE_COMPILE_VAR=BIRD_FIRST_LOGO
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+filename=bird/logo/first-second_logo/$outbuf.bmp
+if [ -f $filename ]; then
+cp $filename mediatek/custom/common/lk/logo/$LCD_DENS/${LCD_DENS}_uboot.bmp
+cp $filename frameworks/base/core/res/assets/images/logo.bmp
+echo BIRD_FIRST_LOGO=$outbuf
+else
+echo ----- Warning: -----  $filename not exist,pls check in the directory "bird/logo/first-second_logo"
+fi
+# Second logo
+MAKEFILE_COMPILE_VAR=BIRD_SECOND_LOGO
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+filename=bird/logo/first-second_logo/$outbuf.bmp
+if [ -f $filename ]; then
+cp $filename mediatek/custom/common/lk/logo/$LCD_DENS/${LCD_DENS}_kernel.bmp
+
+echo BIRD_SECOND_LOGO=$outbuf
+else
+echo ----- Warning: -----  $filename not exist,pls check in the directory "bird/logo/first-second_logo"
+fi
+
+# Third logo
+MAKEFILE_COMPILE_VAR=BIRD_THIRD_LOGO
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [ -d bird/logo/third_logo/$outbuf ]; then
+cp -f bird/logo/third_logo/$outbuf/bird_bootanimation_config.h frameworks/base/cmds/bootanimation/bird_bootanimation_config.h
+if [ -d frameworks/base/core/res/assets/images/bird_images ]; then
+rm -rf frameworks/base/core/res/assets/images/bird_images
+fi
+cp -a bird/logo/third_logo/$outbuf/bird_images frameworks/base/core/res/assets/images
+echo BIRD_THIRD_LOGO=$outbuf
+else
+echo ----- Warning: ----- $outbuf folder not exist, pls check in the directory "bird/logo/third_logo"
+fi
+# Boot animation
+MAKEFILE_COMPILE_VAR=BIRD_BOOT_ANIMATION_ON
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+echo BIRD_BOOT_ANIMATION_ON=$outbuf
+if [[ $outbuf == "yes" ]]; then
+MAKEFILE_COMPILE_VAR=BIRD_BOOT_ANIMATION
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+filename=bird/logo/boot_animation/$outbuf.zip 
+if [ -f $filename ]; then
+cp -rf $filename frameworks/base/data/sounds/bootanimation.zip
+echo copy $filename
+else
+echo ----- Warning: ----- BIRD_BOOT_ANIMATION=$outbuf.zip not exist, pls check in the directory "bird/logo/boot_animation"
+fi
+fi
+# Shutdown animation
+MAKEFILE_COMPILE_VAR=BIRD_SHUTDOWN_ANIMATION_ON
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+echo BIRD_SHUTDOWN_ANIMATION_ON=$outbuf
+if [[ $outbuf == "yes" ]]; then
+MAKEFILE_COMPILE_VAR=BIRD_SHUTDOWN_ANIMATION
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+filename=bird/logo/shut_animation/$outbuf.zip 
+if [ -f $filename ]; then
+cp -rf $filename frameworks/base/data/sounds/shutanimation.zip
+echo copy $filename
+else
+echo ----- Warning: ----- BIRD_SHUTDOWN_ANIMATION=$outbuf.zip not exist, pls check in the directory "bird/logo/shut_animation"
+fi
+fi
+
+############################## BIRD_WCDMA_SIGNAL Check Begin #####################
+MAKEFILE_COMPILE_VAR=BIRD_WCDMA_SIGNAL
+MAKEFILE_COMPILE_VAR2=MTK_TELEPHONY_MODE
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+outbuf2=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR2)
+if [[ $outbuf2 == "1" ]]; then
+echo MTK_TELEPHONY_MODE -WG/G Gemini- = $outbuf2
+if [[ $outbuf == "yes" ]]; then
+echo BIRD_WCDMA_SIGNAL = $outbuf
+else
+echo error BIRD_WCDMA_SIGNAL = $outbuf
+echo This is -WG/G Gemini-, BIRD_WCDMA_SIGNAL must be "yes"
+exit
+fi
+fi
+if [[ $outbuf2 == "2" ]]; then
+echo MTK_TELEPHONY_MODE -TG/G Gemini- = $outbuf2
+if [[ $outbuf == "yes" ]]; then
+echo error BIRD_WCDMA_SIGNAL = $outbuf
+echo This is -TG/G Gemini-, BIRD_WCDMA_SIGNAL must be "no"
+exit
+else
+echo BIRD_WCDMA_SIGNAL = $outbuf
+fi
+fi
+############################## BIRD_WCDMA_SIGNAL Check End #######################
+
+############################## LatinIME Dictionaries Begin #####################
+
+MAKEFILE_COMPILE_VAR=BIRD_LATINIME_DICT
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp  -rf bird/dictionaries/*.*   packages/inputmethods/LatinIME/java/res/raw
+else
+rm -rf packages/inputmethods/LatinIME/java/res/raw/main_*.*
+fi
+
+############################## LatinIME Dictionaries End #######################
+
+############################## CTA REMOVE GOOGLE ###########################
+MAKEFILE_COMPILE_VAR=MTK_CTA_SUPPORT
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+echo ==================start copy CTA_strings==================
+cp  -rf bird/CTA/packages/apps/Settings/res/values-zh-rCN/strings.xml   packages/apps/Settings/res/values-zh-rCN/strings.xml
+cp  -rf bird/CTA/frameworks/base/core/res/res/values-zh-rCN/strings.xml   frameworks/base/core/res/res/values-zh-rCN/strings.xml
+cp  -rf bird/CTA/packages/inputmethods/PinyinIME/res/values/strings.xml   packages/inputmethods/PinyinIME/res/values/strings.xml
+cp  -rf bird/CTA/packages/apps/Browser/AndroidManifest.xml   packages/apps/Browser/AndroidManifest.xml
+echo ==================copy CTA_strings ends==================
+fi
+
+
+
+############################### Power on and off ring ##################################
+#boot
+MAKEFILE_COMPILE_VAR=BIRD_BOOT_RING_ON
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+echo BIRD_BOOT_RING_ON=$outbuf
+if [[ $outbuf == "yes" ]]; then
+MAKEFILE_COMPILE_VAR=BIRD_BOOT_RING
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+filename=bird/sounds/boot/$outbuf.mp3
+if [ -f $filename ]; then
+cp -rf $filename frameworks/base/data/sounds/bootaudio.mp3
+echo copy $filename
+else
+echo ----- Warning: ----- BIRD_BOOT_RING=$outbuf.mp3 not exist, pls check in the directory "bird/sounds/boot"
+fi
+fi
+#shutdown
+MAKEFILE_COMPILE_VAR=BIRD_SHUTDOWN_RING_ON
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+echo BIRD_SHUTDOWN_RING_ON=$outbuf
+if [[ $outbuf == "yes" ]]; then
+MAKEFILE_COMPILE_VAR=BIRD_SHUTDOWN_RING
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+filename=bird/sounds/shutdown/$outbuf.mp3
+if [ -f $filename ]; then
+cp -rf $filename frameworks/base/data/sounds/shutaudio.mp3
+echo copy $filename
+else
+echo ----- Warning: ----- BIRD_SHUTDOWN_RING=$outbuf.mp3 not exist, pls check in the directory "bird/sounds/shutdown"
+fi
+fi
+
+
+############################### customer ring config begin##################################
+MAKEFILE_COMPILE_VAR=BIRD_CUSTOM_RING_CFG
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+echo BIRD_CUSTOM_RING_CFG=$outbuf
+if [[ $outbuf == BIRD_CUSTOM_RING_CFG ]]; then
+
+
+echo BIRD_CUSTOM_RING_CFG is undefined	
+# default to e39, if change, check the default ringtone value in alps\bird\build\common\target\product\core.mk
+	outbuf=e39
+fi
+
+
+echo BIRD_CUSTOM_RING_CFG=$outbuf
+
+
+foldername=bird/sounds/custom_ring/$outbuf
+if [ -e $foldername ]; then
+
+mkdir frameworks/base/data/sounds/customring
+mkdir frameworks/base/data/sounds/customnotify
+mkdir frameworks/base/data/sounds/customalarm
+mkdir frameworks/base/data/sounds/customeffects
+
+cp $foldername/audioring/*.* frameworks/base/data/sounds/customring
+cp $foldername/notifyring/*.* frameworks/base/data/sounds/customnotify
+cp $foldername/alarm/*.* frameworks/base/data/sounds/customalarm
+cp $foldername/ui/*.* frameworks/base/data/sounds/customeffects
+cp $foldername/OriginalAudio.mk frameworks/base/data/sounds/OriginalAudio.mk
+cp $foldername/AllAudio.mk frameworks/base/data/sounds/AllAudio.mk
+fi
+
+############################### customer ring config end##################################
+
+############################### BIRD_MMS_UI start ##################################
+MAKEFILE_COMPILE_GEMINI=BIRD_GEMINI_MMS_SEND
+geminiSend=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_GEMINI)
+
+MAKEFILE_COMPILE_DOOV=BIRD_DOOV_MMS_UI
+doovSend=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_DOOV)
+
+if [[ $geminiSend == "yes" ]] && [[ $doovSend == "yes" ]]; then
+echo BIRD_GEMINI_MMS_SEND and BIRD_DOOV_MMS_UI can not all set yes
+exit
+fi
+############################### BIRD_MMS_UI end ##################################
+
+############################### BIRD_IPHONE_SETTINGS start ##################################
+MAKEFILE_COMPILE_VAR=BIRD_IPHONE_SETTINGS
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+
+if [[ $outbuf == "yes" ]]; then
+echo BIRD_IPHONE_SETTINGS
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-port-hdpi-854x480/preference.xml frameworks/base/core/res/res/layout-port-hdpi-854x480/preference.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_category.xml frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_category.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_category_holo.xml frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_category_holo.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_child.xml frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_child.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_child_holo.xml frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_child_holo.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_dialog_edittext.xml frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_dialog_edittext.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_header_item.xml frameworksbase/core/res/res/layout-port-hdpi-854x480/preference_header_item.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_holo.xml frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_holo.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_information.xml frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_information.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_information_holo.xml frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_information_holo.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_list_content.xml frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_list_content.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_list_content_single.xml frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_list_content_single.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_list_fragment.xml frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_list_fragment.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_widget_checkbox.xml frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_widget_checkbox.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_widget_seekbar.xml frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_widget_seekbar.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_widget_switch.xml frameworks/base/core/res/res/layout-port-hdpi-854x480/preference_widget_switch.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-port-hdpi-854x480/preferences.xml frameworks/base/core/res/res/layout-port-hdpi-854x480/preferences.xml
+
+    mkdir frameworks/base/core/res/res/layout-land-hdpi-854x480
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-land-hdpi-854x480/preference.xml frameworks/base/core/res/res/layout-land-hdpi-854x480/preference.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_category.xml frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_category.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_category_holo.xml frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_category_holo.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_child.xml frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_child.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_child_holo.xml frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_child_holo.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_dialog_edittext.xml frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_dialog_edittext.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_header_item.xml frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_header_item.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_holo.xml frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_holo.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_information.xml frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_information.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_information_holo.xml frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_information_holo.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_list_content.xml frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_list_content.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_list_content_single.xml frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_list_content_single.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_list_fragment.xml frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_list_fragment.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_widget_checkbox.xml frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_widget_checkbox.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_widget_seekbar.xml frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_widget_seekbar.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_widget_switch.xml frameworks/base/core/res/res/layout-land-hdpi-854x480/preference_widget_switch.xml
+    cp -rf bird/IPhoneStyle/frameworks/base/core/res/res/layout-land-hdpi-854x480/preferences.xml frameworks/base/core/res/res/layout-land-hdpi-854x480/preferences.xml
+fi
+############################### BIRD_IPHONE_SETTINGS end ##################################
+
+############################### BIRD_IPHONE_TITLE start ##################################
+#MAKEFILE_COMPILE_VAR=BIRD_IPHONE_TITLE
+#outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+
+#if [[ $outbuf == "yes" ]]; then
+#echo BIRD_IPHONE_TITLE
+#cp -rf bird/drawable/IPHONE_TITLE/framework/layout/*.xml frameworks/base/core/res/res/layout/
+#cp -rf bird/drawable/IPHONE_TITLE/framework/drawable-hdpi/*.png frameworks/base/core/res/res/drawable-hdpi/
+#fi
+############################### BIRD_IPHONE_TITLE end ##################################
+
+############################### CU UI start ##################################
+MAKEFILE_COMPILE_VAR=BIRD_CU_UI
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+
+echo CU UI
+#copy framework
+cp -rf bird/drawable/CU/framework/drawable-hdpi/*.png frameworks/base/core/res/res/drawable-hdpi/
+cp -rf bird/drawable/CU/framework/drawable/default_wallpaper.jpg frameworks/base/core/res/res/drawable/
+cp -rf bird/drawable/CU/framework/layout/*.xml frameworks/base/core/res/res/layout/
+cp -rf bird/drawable/CU/framework/values/*.xml frameworks/base/core/res/res/values/
+#copy apps
+cp -rf bird/drawable/CU/AccountsAndSyncSettings/AndroidManifest.xml packages/apps/AccountsAndSyncSettings/
+cp -rf bird/drawable/CU/Phone/AndroidManifest.xml packages/apps/Phone/
+cp -rf bird/drawable/CU/SenseLauncherG11/res/color/bright_text_dark_focused.xml packages/apps/SenseLauncherG11/res/color/
+cp -rf bird/drawable/CU/SenseLauncherG11/res/drawable-hdpi/*.png packages/apps/SenseLauncherG11/res/drawable-hdpi/
+cp -rf bird/drawable/CU/SenseLauncherG11/res/layout-port/*.xml packages/apps/SenseLauncherG11/res/layout-port/
+cp -rf bird/drawable/CU/Settings/AndroidManifest.xml packages/apps/Settings/
+cp -rf bird/drawable/CU/Settings/res/drawable-hdpi/*png packages/apps/Settings/res/drawable-hdpi/
+cp -rf bird/drawable/CU/Contacts/res/drawable-hdpi-finger/*.png packages/apps/Contacts/res/drawable-hdpi-finger/
+cp -rf bird/drawable/CU/Contacts/res/layout-finger/*.xml packages/apps/Contacts/res/layout-finger/
+cp -rf bird/drawable/CU/Contacts/res/layout-port-hdpi-finger/*.xml packages/apps/Contacts/res/layout-port-hdpi-finger/
+
+fi
+############################### CU UI end ##################################
+
+#----------------------------------Submenu Statusbar Begin--------------------------------
+MAKEFILE_COMPILE_VAR=BIRD_STATUSBAR_TRANSPARENT_SUBMENU
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+foldername=bird/drawable/submenu_statusbar
+if [ -d $foldername ]; then
+cp -r $foldername/framework/drawable-hdpi/*.* frameworks/base/core/res/res/drawable-hdpi/
+cp -r $foldername/SystemUI/drawable-hdpi/*.* frameworks/base/packages/SystemUI/res/drawable-hdpi/
+fi
+fi
+#----------------------------------Submenu Statusbar End--------------------------------
+
+#time no refresh patch zhouhuaguo 20111101
+#cp -rf bird/mtk_lib/libipod.so vendor/mediatek/${PROJECT_NAME}/artifacts/out/target/product/${PROJECT_NAME}/system/lib/nvram_agent_binder
+
+#zhouhuaguo
+
+#MAKEFILE_COMPILE_VAR=BIRD_EWC_XBF_X920
+#outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+#if [[ $outbuf == "yes" ]]; then
+#cp -rf bird/mtk_lib/nvram_agent_binder vendor/mediatek/${PROJECT_NAME}/artifacts/out/target/product/${PROJECT_NAME}/system/bin/nvram_agent_binder
+#fi
+
+#zhouhuaguo
+#MAKEFILE_COMPILE_VAR=BIRD_EWC
+#outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+#if [[ $outbuf == "yes" ]]; then
+#cp -rf bird/mtk_lib/nvram_agent_binder vendor/mediatek/${PROJECT_NAME}/artifacts/out/target/product/${PROJECT_NAME}/system/bin/nvram_agent_binder
+#fi
+
+#zhouhuaguo 20111025
+MAKEFILE_COMPILE_VAR=BIRD_EXPAND_DRV_PARTITION
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp -rf bird/partition_table/partition_table.xls mediatek/build/tools/ptgen/partition_table.xls
+fi
+
+#jiali 20130528
+MAKEFILE_COMPILE_VAR=BIRD_SPECIAL_PARTITION_ON
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+echo BIRD_SPECIAL_PARTITION_ON = $outbuf
+if [[ $outbuf == "yes" ]]; then
+	MAKEFILE_COMPILE_VAR=BIRD_SPECIAL_PARTITION_TABLE
+	outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+	cp -rf $outbuf mediatek/build/tools/ptgen/MT6572/partition_table_MT6572.xls
+fi
+
+#yanan 20120823 add
+MAKEFILE_COMPILE_VAR=BIRD_12TX6_QVGA
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+cp -rf bird/Contacts/layout/dialpad.xml packages/apps/Contacts/res/layout-mdpi/dialpad.xml
+cp -rf bird/Contacts/layout/dialpad_additional_buttons.xml packages/apps/Contacts/res/layout-mdpi/dialpad_additional_buttons.xml
+cp -rf bird/Contacts/layout/dialpad_fragment.xml packages/apps/Contacts/res/layout-mdpi/dialpad_fragment.xml
+cp -rf bird/Contacts/layout/dimens.xml packages/apps/Contacts/res/values-mdpi/dimens.xml
+cp -rf bird/Contacts/layout/dialpad.xml packages/apps/Contacts/res/layout/dialpad.xml
+cp -rf bird/Contacts/layout/dialpad_additional_buttons.xml packages/apps/Contacts/res/layout/dialpad_additional_buttons.xml
+cp -rf bird/Contacts/layout/dialpad_fragment.xml packages/apps/Contacts/res/layout/dialpad_fragment.xml
+cp -rf bird/Contacts/layout/dimens.xml packages/apps/Contacts/res/values/dimens.xml
+cp -rf bird/Contacts/drawable/*.png packages/apps/Contacts/res/drawable
+cp -rf bird/Contacts/drawable/*.png packages/apps/Phone/res/drawable
+fi
+#yanan add end
+############################### default wallpaper ########################################
+MAKEFILE_COMPILE_VAR=BIRD_DEFAULT_WALLPAPER
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "BIRD_DEFAULT_WALLPAPER" ]]||[[ $outbuf = "UE_WALLPAPERS1" ]];  then
+	if [[ $LCD_DENS == "hd720p" ]]; then
+		filename=bird/wallpaper/extra_wallpapers/UE_WALLPAPERS1/HD/wallpaper_01.jpg
+	elif [[ $LCD_DENS == "qvga" ]]||[[ $LCD_DENS == "wqvga" ]]; then
+		filename=bird/wallpaper/extra_wallpapers/UE_WALLPAPERS1/hvga/wallpaper_01.jpg
+	else	
+		filename=bird/wallpaper/extra_wallpapers/UE_WALLPAPERS1/$LCD_DENS/wallpaper_01.jpg
+	fi
+	rm -f  frameworks/base/core/res/res/drawable-sw600dp-nodpi/default_wallpaper.jpg
+	rm -f  frameworks/base/core/res/res/drawable-sw720dp-nodpi/default_wallpaper.jpg
+	cp -f $filename frameworks/base/core/res/res/drawable-nodpi/default_wallpaper.jpg
+	rm -f  frameworks/base/core/res/res/drawable-xhdpi/default_wallpaper.jpg
+else
+	filename=bird/wallpaper/default_wallpaper/${outbuf}.jpg
+	if [ ! -e $filename ]; then
+	echo ----- Warning: ----- $filename not exist, pls check in the directory "bird/wallpaper/default_wallpaper"
+	else
+	rm -f  frameworks/base/core/res/res/drawable-sw600dp-nodpi/default_wallpaper.jpg
+	rm -f  frameworks/base/core/res/res/drawable-sw720dp-nodpi/default_wallpaper.jpg
+	cp -f $filename frameworks/base/core/res/res/drawable-nodpi/default_wallpaper.jpg
+	rm -f  frameworks/base/core/res/res/drawable-xhdpi/default_wallpaper.jpg
+	fi
+fi
+############################### end default wallpaper ########################################
+
+############################### theme wallpaper ########################################
+MAKEFILE_COMPILE_VAR=BIRD_DEFAULT_WALLPAPER
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+filename=bird/wallpaper/default_wallpaper/
+if [ ! -e $filename ]; then
+echo ----- Warning: ----- $filename not exist, pls check in the directory "bird/wallpaper/default_wallpaper"
+else
+if [[ $LCD_DENS == "qhd" ]]; then
+    dest_default_folder=packages/apps/Settings/res/drawable-hdpi
+    dest_theme_folder=mediatek/source/frameworks/themes/theme-res-slicer/res/drawable-hdpi
+elif [[ $LCD_DENS == "wvga" ]]; then
+    dest_default_folder=packages/apps/Settings/res/drawable-hdpi
+    dest_theme_folder=mediatek/source/frameworks/themes/theme-res-slicer/res/drawable-hdpi
+elif [[ $LCD_DENS == "hvga" ]]; then
+    dest_default_folder=packages/apps/Settings/res/drawable-mdpi
+    dest_theme_folder=mediatek/source/frameworks/themes/theme-res-slicer/res/drawable-mdpi
+elif [[ $LCD_DENS == "wqvga" ]]; then
+    dest_default_folder=packages/apps/Settings/res/drawable-mdpi
+    dest_theme_folder=mediatek/source/frameworks/themes/theme-res-slicer/res/drawable-mdpi
+elif [[ $LCD_DENS == "qvga" ]]; then
+    dest_default_folder=packages/apps/Settings/res/drawable-mdpi
+    dest_theme_folder=mediatek/source/frameworks/themes/theme-res-slicer/res/drawable-mdpi
+else
+    dest_default_folder=packages/apps/Settings/res/drawable-hdpi
+    dest_theme_folder=mediatek/source/frameworks/themes/theme-res-slicer/res/drawable-hdpi
+fi
+
+cp -f ${filename}${outbuf}_${LCD_DENS}.jpg ${dest_default_folder}/wallpaper_default.jpg
+filename=bird/wallpaper/theme_wallpaper/
+cp -f $filename${outbuf}_lockscreen_${LCD_DENS}.jpg ${dest_default_folder}/lockscreen_default_wallpaper.jpg
+cp -f $filename${outbuf}_themepreview1_${LCD_DENS}.jpg ${dest_default_folder}/ic_default_theme.jpg
+
+cp -f $filename${outbuf}_themepreview2_${LCD_DENS}.png ${dest_theme_folder}/previewtheme.png
+fi
+
+
+
+############################### theme appicon ########################################
+MAKEFILE_COMPILE_VAR=BIRD_THEME_APPICON
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+filename=bird/theme/appicon/$outbuf
+if [ ! -e $filename ]; then
+echo checking setting of "BIRD_THEME_APPICON"
+if [[ $outbuf = "BIRD_THEME_APPICON" ]]; then
+echo "BIRD_THEME_APPICON" not define
+else
+echo ----- error: ----- $filename not exist, pls check in the directory in "bird/theme/appicon"
+
+#shenyibin add for theme manager appicon begin 20130122 
+	filename=bird/theme/theme_packages/init_theme/$outbuf
+	if [ ! -e $filename ]; then
+		echo ----- Warning: ---theme manager appicon-- $filename not exist, pls check in the directory $filename
+	else
+	mkdir packages/apps/Launcher2/assets/
+	echo BIRD_THEME_APPICON outbuf $outbuf  > packages/apps/Launcher2/theme_manager_appicon.txt
+	echo copy theme manager appicon from $filename >> packages/apps/Launcher2/theme_manager_appicon.txt
+ if [  -e $filename/launcher_icons/com.android.browser.png ]; then
+    cp -rf $filename/launcher_icons/com.android.browser.png packages/apps/Browser/res/mipmap-xhdpi/ic_launcher_browser.png
+    cp -rf $filename/launcher_icons/com.android.browser.png packages/apps/Browser/res/mipmap-hdpi/ic_launcher_browser.png
+    cp -rf $filename/launcher_icons/com.android.browser.png packages/apps/Browser/res/mipmap-mdpi/ic_launcher_browser.png
+    echo "com.android.browser" > packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.android.mms.png ]; then
+    cp -rf $filename/launcher_icons/com.android.mms.png packages/apps/Mms/res/mipmap-xhdpi/ic_launcher_smsmms.png
+   cp -rf $filename/launcher_icons/com.android.mms.png packages/apps/Mms/res/mipmap-hdpi/ic_launcher_smsmms.png
+   cp -rf $filename/launcher_icons/com.android.mms.png packages/apps/Mms/res/mipmap-mdpi/ic_launcher_smsmms.png
+    echo "com.android.mms" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.android.gallery3d.app.Gallery.png ]; then
+	cp -rf $filename/launcher_icons/com.android.gallery3d.app.Gallery.png packages/apps/Gallery2/res/mipmap-xhdpi/ic_launcher_gallery.png
+	cp -rf $filename/launcher_icons/com.android.gallery3d.app.Gallery.png packages/apps/Gallery2/res/mipmap-hdpi/ic_launcher_gallery.png
+    cp -rf $filename/launcher_icons/com.android.gallery3d.app.Gallery.png packages/apps/Gallery2/res/mipmap-mdpi/ic_launcher_gallery.png
+    echo "com.android.gallery3d.app.Gallery" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.mediatek.videoplayer.png ]; then
+    cp -rf $filename/launcher_icons/com.mediatek.videoplayer.png mediatek/packages/apps/VideoPlayer/res/drawable-hdpi/ic_video_app.png
+   cp -rf $filename/launcher_icons/com.mediatek.videoplayer.png mediatek/packages/apps/VideoPlayer/res/drawable-mdpi/ic_video_app.png
+    echo "com.mediatek.videoplayer" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.nbbsw.thememgr.png ]; then
+    cp -rf $filename/launcher_icons/com.nbbsw.thememgr.png packages/apps/ThemeManager/res/drawable-xhdpi/theme.png
+    cp -rf $filename/launcher_icons/com.nbbsw.thememgr.png packages/apps/ThemeManager/res/drawable-hdpi/theme.png
+    cp -rf $filename/launcher_icons/com.nbbsw.thememgr.png packages/apps/ThemeManager/res/drawable-mdpi/theme.png
+    echo "com.nbbsw.thememgr" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.nbbsw.torch.png ]; then
+    cp -rf $filename/launcher_icons/com.nbbsw.torch.png packages/apps/Torch/res/drawable-hdpi/icon.png
+    cp -rf $filename/launcher_icons/com.nbbsw.torch.png packages/apps/Torch/res/drawable-mdpi/icon.png
+    echo "com.nbbsw.torch" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.android.settings.png ]; then
+    cp -rf $filename/launcher_icons/com.android.settings.png packages/apps/Settings/res/mipmap-xhdpi/ic_launcher_settings.png
+    cp -rf $filename/launcher_icons/com.android.settings.png packages/apps/Settings/res/mipmap-hdpi/ic_launcher_settings.png
+    cp -rf $filename/launcher_icons/com.android.settings.png packages/apps/Settings/res/mipmap-mdpi/ic_launcher_settings.png
+    echo "com.android.settings" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.android.providers.downloads.ui.png ]; then
+    cp -rf $filename/launcher_icons/com.android.providers.downloads.ui.png packages/providers/DownloadProvider/ui/res/mipmap-xhdpi/ic_launcher_download.png
+    cp -rf $filename/launcher_icons/com.android.providers.downloads.ui.png packages/providers/DownloadProvider/ui/res/mipmap-hdpi/ic_launcher_download.png
+    cp -rf $filename/launcher_icons/com.android.providers.downloads.ui.png packages/providers/DownloadProvider/ui/res/mipmap-mdpi/ic_launcher_download.png
+    echo "com.android.providers.downloads.ui" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+  if [  -e $filename/launcher_icons/com.android.providers.downloads.ui.DownloadList.png ]; then
+    cp -rf $filename/launcher_icons/com.android.providers.downloads.ui.DownloadList.png packages/providers/DownloadProvider/ui/res/mipmap-xhdpi/ic_launcher_download.png
+    cp -rf $filename/launcher_icons/com.android.providers.downloads.ui.DownloadList.png packages/providers/DownloadProvider/ui/res/mipmap-hdpi/ic_launcher_download.png
+    cp -rf $filename/launcher_icons/com.android.providers.downloads.ui.DownloadList.png packages/providers/DownloadProvider/ui/res/mipmap-mdpi/ic_launcher_download.png
+    echo "com.android.providers.downloads.ui.DownloadList" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.android.contacts.activities.DialtactsActivity.png ]; then
+    cp -rf $filename/launcher_icons/com.android.contacts.activities.DialtactsActivity.png packages/apps/Contacts/res/mipmap-xhdpi/ic_launcher_phone.png
+    cp -rf $filename/launcher_icons/com.android.contacts.activities.DialtactsActivity.png packages/apps/Contacts/res/mipmap-hdpi/ic_launcher_phone.png
+    cp -rf $filename/launcher_icons/com.android.contacts.activities.DialtactsActivity.png packages/apps/Contacts/res/mipmap-mdpi/ic_launcher_phone.png
+    echo "com.android.contacts.activities.DialtactsActivity" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+  if [  -e $filename/launcher_icons/com.android.contacts.activities.PeopleActivity.png ]; then
+    cp -rf $filename/launcher_icons/com.android.contacts.activities.PeopleActivity.png packages/apps/Contacts/res/mipmap-xhdpi/ic_launcher_contacts.png
+    cp -rf $filename/launcher_icons/com.android.contacts.activities.PeopleActivity.png packages/apps/Contacts/res/mipmap-hdpi/ic_launcher_contacts.png
+    cp -rf $filename/launcher_icons/com.android.contacts.activities.PeopleActivity.png packages/apps/Contacts/res/mipmap-mdpi/ic_launcher_contacts.png
+    echo "com.android.contacts.activities.PeopleActivity" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.android.soundrecorder.png ]; then
+    cp -rf $filename/launcher_icons/com.android.soundrecorder.png packages/apps/SoundRecorder/res/drawable-xhdpi/ic_launcher_soundrecorder.png
+    cp -rf $filename/launcher_icons/com.android.soundrecorder.png packages/apps/SoundRecorder/res/drawable-hdpi/ic_launcher_soundrecorder.png
+    cp -rf $filename/launcher_icons/com.android.soundrecorder.png packages/apps/SoundRecorder/res/drawable-mdpi/ic_launcher_soundrecorder.png
+    echo "com.android.soundrecorder" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.mediatek.FMRadio.png ]; then
+    cp -rf $filename/launcher_icons/com.mediatek.FMRadio.png mediatek/packages/apps/FMRadio/res/drawable-xhdpi/ic_launcher_temp.png
+    cp -rf $filename/launcher_icons/com.mediatek.FMRadio.png mediatek/packages/apps/FMRadio/res/drawable-hdpi/ic_launcher_temp.png
+    cp -rf $filename/launcher_icons/com.mediatek.FMRadio.png mediatek/packages/apps/FMRadio/res/drawable-mdpi/ic_launcher_temp.png
+    echo "com.mediatek.FMRadio" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.android.email.png ]; then
+    cp -rf $filename/launcher_icons/com.android.email.png packages/apps/Email/res/mipmap-xhdpi/ic_launcher_email.png
+    cp -rf $filename/launcher_icons/com.android.email.png packages/apps/Email/res/mipmap-hdpi/ic_launcher_email.png
+    cp -rf $filename/launcher_icons/com.android.email.png packages/apps/Email/res/mipmap-mdpi/ic_launcher_email.png
+    echo "com.android.email" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ 
+ if [  -e $filename/launcher_icons/com.mediatek.filemanager.png ]; then
+    cp -rf $filename/launcher_icons/com.mediatek.filemanager.png mediatek/packages/apps/FileManager/res/drawable-xhdpi/app_filemanager.png
+    cp -rf $filename/launcher_icons/com.mediatek.filemanager.png mediatek/packages/apps/FileManager/res/drawable-hdpi/app_filemanager.png
+    cp -rf $filename/launcher_icons/com.mediatek.filemanager.png mediatek/packages/apps/FileManager/res/drawable-mdpi/app_filemanager.png
+    echo "com.mediatek.filemanager" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.android.quicksearchbox.png ]; then
+    cp -rf $filename/launcher_icons/com.android.quicksearchbox.png packages/apps/QuickSearchBox/res/mipmap-hdpi/search_app_icon.png
+    cp -rf $filename/launcher_icons/com.android.quicksearchbox.png packages/apps/QuickSearchBox/res/mipmap-mdpi/search_app_icon.png
+    echo "com.android.quicksearchbox" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.android.calendar.png ]; then
+    cp -rf $filename/launcher_icons/com.android.calendar.png packages/apps/Calendar/res/mipmap-xhdpi/ic_launcher_calendar.png
+     cp -rf $filename/launcher_icons/com.android.calendar.png packages/apps/Calendar/res/mipmap-hdpi/ic_launcher_calendar.png
+      cp -rf $filename/launcher_icons/com.android.calendar.png packages/apps/Calendar/res/mipmap-mdpi/ic_launcher_calendar.png
+    echo "com.android.calendar" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.android.deskclock.png ]; then
+    cp -rf $filename/launcher_icons/com.android.deskclock.png packages/apps/DeskClock/res/mipmap-xhdpi/ic_launcher_alarmclock.png
+    cp -rf $filename/launcher_icons/com.android.deskclock.png packages/apps/DeskClock/res/mipmap-hdpi/ic_launcher_alarmclock.png
+    cp -rf $filename/launcher_icons/com.android.deskclock.png packages/apps/DeskClock/res/mipmap-mdpi/ic_launcher_alarmclock.png
+    echo "com.android.deskclock" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.android.calculator2.png ]; then
+    cp -rf $filename/launcher_icons/com.android.calculator2.png packages/apps/Calculator/res/mipmap-xhdpi/ic_launcher_calculator.png
+    cp -rf $filename/launcher_icons/com.android.calculator2.png packages/apps/Calculator/res/mipmap-hdpi/ic_launcher_calculator.png
+    cp -rf $filename/launcher_icons/com.android.calculator2.png packages/apps/Calculator/res/mipmap-mdpi/ic_launcher_calculator.png
+    echo "com.android.calculator2" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.mediatek.StkSelection.png ]; then
+    cp -rf $filename/launcher_icons/com.mediatek.StkSelection.png mediatek/packages/apps/StkSelection/res/drawable-hdpi/ic_launcher_sim_toolkit.png
+    cp -rf $filename/launcher_icons/com.mediatek.StkSelection.png mediatek/packages/apps/StkSelection/res/drawable-mdpi/ic_launcher_sim_toolkit.png
+    echo "com.mediatek.StkSelection" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.android.music.png ]; then
+    cp -rf $filename/launcher_icons/com.android.music.png packages/apps/Music/res/drawable-hdpi/app_music.png
+    cp -rf $filename/launcher_icons/com.android.music.png packages/apps/Music/res/drawable-mdpi/app_music.png
+    echo "com.android.music" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.android.launcher.png ]; then
+    cp -rf $filename/launcher_icons/com.android.launcher.png packages/apps/Launcher2/res/drawable-xhdpi/ic_launcher_home.png
+    cp -rf $filename/launcher_icons/com.android.launcher.png packages/apps/Launcher2/res/drawable-hdpi/ic_launcher_home.png
+    echo "com.android.launcher" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.nbbsw.moreapp.png ]; then
+    cp -rf $filename/launcher_icons/com.nbbsw.moreapp.png packages/apps/MoreApp/res/drawable-xhdpi/more.png
+    cp -rf $filename/launcher_icons/com.nbbsw.moreapp.png packages/apps/MoreApp/res/drawable-hdpi/more.png
+    cp -rf $filename/launcher_icons/com.nbbsw.moreapp.png packages/apps/MoreApp/res/drawable-mdpi/more.png
+    echo "com.nbbsw.moreapp" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.android.camera.png ]; then
+    cp -rf $filename/launcher_icons/com.android.camera.png packages/apps/Camera/res/mipmap-xhdpi/ic_launcher_camera.png
+    cp -rf $filename/launcher_icons/com.android.camera.png packages/apps/Camera/res/mipmap-hdpi/ic_launcher_camera.png
+    cp -rf $filename/launcher_icons/com.android.camera.png packages/apps/Camera/res/mipmap-mdpi/ic_launcher_camera.png
+    echo "com.android.camera" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+	echo "com.android.camera.CameraLauncher" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+ if [  -e $filename/launcher_icons/com.mediatek.notebook.png ]; then
+    cp -rf $filename/launcher_icons/com.mediatek.notebook.png mediatek/packages/apps/NoteBook/res/drawable-hdpi/app_notes.png
+    cp -rf $filename/launcher_icons/com.mediatek.notebook.png mediatek/packages/apps/NoteBook/res/drawable-mdpi/app_notes.png
+    echo "com.mediatek.notebook" >> packages/apps/Launcher2/assets/theme_manager_appicon.generated
+  fi
+  
+  echo "appicons: " >> packages/apps/Launcher2/theme_manager_appicon.txt
+  cat packages/apps/Launcher2/assets/theme_manager_appicon.generated >> packages/apps/Launcher2/theme_manager_appicon.txt
+  
+  echo copy IconBg to packages/apps/Launcher2/res/drawable ... >> packages/apps/Launcher2/theme_manager_appicon.txt
+  cp -rf $filename/launcher_icons/icon_background.png packages/apps/Launcher2/res/drawable/bg1.png
+  cp -rf $filename/launcher_icons/icon_background1.png packages/apps/Launcher2/res/drawable/bg1.png
+  cp -rf $filename/launcher_icons/icon_background2.png packages/apps/Launcher2/res/drawable/bg2.png
+  cp -rf $filename/launcher_icons/icon_background3.png packages/apps/Launcher2/res/drawable/bg3.png
+  cp -rf $filename/launcher_icons/icon_background4.png packages/apps/Launcher2/res/drawable/bg4.png
+  cp -rf $filename/launcher_icons/icon_background5.png packages/apps/Launcher2/res/drawable/bg5.png
+  cp -rf $filename/launcher_icons/icon_background6.png packages/apps/Launcher2/res/drawable/bg6.png
+  cp -rf $filename/launcher_icons/icon_background7.png packages/apps/Launcher2/res/drawable/bg7.png
+  cp -rf $filename/launcher_icons/icon_background8.png packages/apps/Launcher2/res/drawable/bg8.png
+  
+  
+ echo copy description.xml to packages/apps/Launcher2/assets/description.xml ... >> packages/apps/Launcher2/theme_manager_appicon.txt
+  cp -rf $filename/description.xml packages/apps/Launcher2/assets/description.xml
+ 
+ MAKEFILE_COMPILE_VAR=BIRD_THEME_APPICON_ALLAPP
+ outbuf2=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+ echo BIRD_THEME_APPICON_ALLAPP outbuf2  $outbuf2 >> packages/apps/Launcher2/theme_manager_appicon.txt
+ if [[ $outbuf2 == "yes" ]]; then
+ echo copy hotset icon ... >> packages/apps/Launcher2/theme_manager_appicon.txt
+ cp -rf $filename/drawable/com.android.launcher__ic_allapps.png packages/apps/Launcher2/res/drawable-xhdpi/ic_allapps.png
+ cp -rf $filename/drawable/com.android.launcher__ic_allapps.png packages/apps/Launcher2/res/drawable-hdpi/ic_allapps.png
+ cp -rf $filename/drawable/com.android.launcher__ic_allapps.png packages/apps/Launcher2/res/drawable-mdpi/ic_allapps.png
+ 
+ cp -rf $filename/drawable/com.android.launcher__ic_allapps_pressed.png packages/apps/Launcher2/res/drawable-xhdpi/ic_allapps_pressed.png
+ cp -rf $filename/drawable/com.android.launcher__ic_allapps_pressed.png packages/apps/Launcher2/res/drawable-hdpi/ic_allapps_pressed.png
+ cp -rf $filename/drawable/com.android.launcher__ic_allapps_pressed.png packages/apps/Launcher2/res/drawable-mdpi/ic_allapps_pressed.png
+ fi
+ echo copy theme manager appicon $outbuf ok ... >> packages/apps/Launcher2/theme_manager_appicon.txt
+ echo copy theme manager appicon $outbuf ok ...
+ fi
+ #shenyibin add for theme manager appicon end 20130122 
+ 
+ 
+fi
+else
+cp -rf bird/theme/appicon/$outbuf/bird_theme_appicon_list.xml packages/apps/Launcher2/res/values/bird_theme_appicon_list.xml
+if [[ $LCD_DENS = "hd720p" ]]; then
+  cp -rf $filename/drawable-xhdpi/IconBg/*.png packages/apps/Launcher2/res/drawable
+  cp -rf $filename/drawable-xhdpi/IconBg/*.png packages/apps/Launcher2/res/drawable-xhdpi
+  cp -rf $filename/drawable-xhdpi/Browser/*.png packages/apps/Browser/res/mipmap-xhdpi
+  cp -rf $filename/drawable-xhdpi/Calculator/*.png packages/apps/Calculator/res/mipmap-xhdpi
+  cp -rf $filename/drawable-xhdpi/Calendar/*.png packages/apps/Calendar/res/mipmap-xhdpi
+  cp -rf $filename/drawable-xhdpi/Camera/*.png packages/apps/Camera/res/mipmap-xhdpi
+  cp -rf $filename/drawable-xhdpi/Contacts/*.png packages/apps/Contacts/res/mipmap-xhdpi
+  cp -rf $filename/drawable-xhdpi/DeskClock/*.png packages/apps/DeskClock/res/mipmap-xhdpi
+# cp -rf $filename/drawable-xhdpi/DownloadProviderUi/*.png packages/apps/DownloadProviderUi/res/drawable-xhdpi
+  cp -rf $filename/drawable-xhdpi/Email/*.png packages/apps/Email/res/mipmap-xhdpi
+  cp -rf $filename/drawable-xhdpi/FileManager/*.png mediatek/packages/apps/FileManager/res/drawable-xhdpi
+  cp -rf $filename/drawable-xhdpi/FMRadio/*.png mediatek/packages/apps/FMRadio/res/drawable-xhdpi
+  cp -rf $filename/drawable-xhdpi/Gallery2/*.png packages/apps/Gallery2/res/mipmap-xhdpi
+  cp -rf $filename/drawable-xhdpi/Launcher2/*.png packages/apps/Launcher2/res/drawable-xhdpi
+  cp -rf $filename/drawable-xhdpi/Mms/*.png packages/apps/Mms/res/mipmap-xhdpi
+  cp -rf $filename/drawable-xhdpi/Music/*.png packages/apps/Music/res/drawable-hdpi
+  cp -rf $filename/drawable-xhdpi/QuickSearchBox/*.png packages/apps/QuickSearchBox/res/mipmap-hdpi
+  cp -rf $filename/drawable-xhdpi/Settings/*.png packages/apps/Settings/res/mipmap-xhdpi
+  cp -rf $filename/drawable-xhdpi/SoundRecorder/*.png packages/apps/SoundRecorder/res/drawable-xhdpi
+  cp -rf $filename/drawable-xhdpi/StkSelection/*.png mediatek/packages/apps/StkSelection/res/drawable-hdpi
+elif [[ $LCD_DENS = "qhd" ]]; then
+  if [[ $outbuf = "littlewhite" ]]; then
+  cp -rf $filename/drawable-hdpi-960x540/IconBg/*.png packages/apps/Launcher2/res/drawable
+  cp -rf $filename/drawable-hdpi-960x540/IconBg/*.png packages/apps/Launcher2/res/drawable-hdpi
+  cp -rf $filename/drawable-hdpi-960x540/Browser/*.png packages/apps/Browser/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi-960x540/Calculator/*.png packages/apps/Calculator/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi-960x540/Calendar/*.png packages/apps/Calendar/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi-960x540/Camera/*.png packages/apps/Camera/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi-960x540/Contacts/*.png packages/apps/Contacts/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi-960x540/DeskClock/*.png packages/apps/DeskClock/res/mipmap-hdpi
+# cp -rf $filename/drawable-hdpi-960x540/DownloadProviderUi/*.png packages/apps/DownloadProviderUi/res/drawable-hdpi
+  cp -rf $filename/drawable-hdpi-960x540/Email/*.png packages/apps/Email/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi-960x540/FileManager/*.png mediatek/packages/apps/FileManager/res/drawable-hdpi
+  cp -rf $filename/drawable-hdpi-960x540/FMRadio/*.png mediatek/packages/apps/FMRadio/res/drawable-hdpi
+  cp -rf $filename/drawable-hdpi-960x540/Gallery2/*.png packages/apps/Gallery2/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi-960x540/Launcher2/*.png packages/apps/Launcher2/res/drawable-hdpi
+  cp -rf $filename/drawable-hdpi-960x540/Mms/*.png packages/apps/Mms/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi-960x540/Music/*.png packages/apps/Music/res/drawable-hdpi
+  cp -rf $filename/drawable-hdpi-960x540/QuickSearchBox/*.png packages/apps/QuickSearchBox/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi-960x540/Settings/*.png packages/apps/Settings/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi-960x540/SoundRecorder/*.png packages/apps/SoundRecorder/res/drawable-hdpi
+  cp -rf $filename/drawable-hdpi-960x540/StkSelection/*.png mediatek/packages/apps/StkSelection/res/drawable-hdpi
+  else
+  cp -rf $filename/drawable-hdpi/IconBg/*.png packages/apps/Launcher2/res/drawable
+  cp -rf $filename/drawable-hdpi/IconBg/*.png packages/apps/Launcher2/res/drawable-hdpi
+  cp -rf $filename/drawable-hdpi/Browser/*.png packages/apps/Browser/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi/Calculator/*.png packages/apps/Calculator/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi/Calendar/*.png packages/apps/Calendar/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi/Camera/*.png packages/apps/Camera/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi/Contacts/*.png packages/apps/Contacts/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi/DeskClock/*.png packages/apps/DeskClock/res/mipmap-hdpi
+# cp -rf $filename/drawable-hdpi/DownloadProviderUi/*.png packages/apps/DownloadProviderUi/res/drawable-hdpi
+  cp -rf $filename/drawable-hdpi/Email/*.png packages/apps/Email/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi/FileManager/*.png mediatek/packages/apps/FileManager/res/drawable-hdpi
+  cp -rf $filename/drawable-hdpi/FMRadio/*.png mediatek/packages/apps/FMRadio/res/drawable-hdpi
+  cp -rf $filename/drawable-hdpi/Gallery2/*.png packages/apps/Gallery2/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi/Launcher2/*.png packages/apps/Launcher2/res/drawable-hdpi
+  cp -rf $filename/drawable-hdpi/Mms/*.png packages/apps/Mms/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi/Music/*.png packages/apps/Music/res/drawable-hdpi
+  cp -rf $filename/drawable-hdpi/QuickSearchBox/*.png packages/apps/QuickSearchBox/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi/Settings/*.png packages/apps/Settings/res/mipmap-hdpi
+  cp -rf $filename/drawable-hdpi/SoundRecorder/*.png packages/apps/SoundRecorder/res/drawable-hdpi
+  cp -rf $filename/drawable-hdpi/StkSelection/*.png mediatek/packages/apps/StkSelection/res/drawable-hdpi
+  fi
+else
+  cp -rf $filename/$DrawableType/IconBg/*.png packages/apps/Launcher2/res/drawable
+  cp -rf $filename/$DrawableType/IconBg/*.png packages/apps/Launcher2/res/$DrawableType
+  cp -rf $filename/$DrawableType/Browser/*.png packages/apps/Browser/res/$MipmapType
+  cp -rf $filename/$DrawableType/Calculator/*.png packages/apps/Calculator/res/$MipmapType
+  cp -rf $filename/$DrawableType/Calendar/*.png packages/apps/Calendar/res/$MipmapType
+  cp -rf $filename/$DrawableType/Camera/*.png packages/apps/Camera/res/$MipmapType
+  cp -rf $filename/$DrawableType/Contacts/*.png packages/apps/Contacts/res/$MipmapType
+  cp -rf $filename/$DrawableType/DeskClock/*.png packages/apps/DeskClock/res/$MipmapType
+# cp -rf $filename/$DrawableType/DownloadProviderUi/*.png packages/apps/DownloadProviderUi/res/$DrawableType
+  cp -rf $filename/$DrawableType/Email/*.png packages/apps/Email/res/$MipmapType
+  cp -rf $filename/$DrawableType/FileManager/*.png mediatek/packages/apps/FileManager/res/$DrawableType
+  cp -rf $filename/$DrawableType/FMRadio/*.png mediatek/packages/apps/FMRadio/apps/res/$DrawableType
+  cp -rf $filename/$DrawableType/Gallery2/*.png packages/apps/Gallery2/res/$MipmapType
+  cp -rf $filename/$DrawableType/Launcher2/*.png packages/apps/Launcher2/res/$DrawableType
+  cp -rf $filename/$DrawableType/Mms/*.png packages/apps/Mms/res/$MipmapType
+  cp -rf $filename/$DrawableType/Music/*.png packages/apps/Music/res/$DrawableType
+  cp -rf $filename/$DrawableType/QuickSearchBox/*.png packages/apps/QuickSearchBox/res/$MipmapType
+  cp -rf $filename/$DrawableType/Settings/*.png packages/apps/Settings/res/$MipmapType
+  cp -rf $filename/$DrawableType/SoundRecorder/*.png packages/apps/SoundRecorder/res/$DrawableType
+  cp -rf $filename/$DrawableType/StkSelection/*.png mediatek/packages/apps/StkSelection/res/$DrawableType
+fi
+fi
+###############################  theme appicon end  ########################################
+###############################  Calendar widget start  CHANGE BY WANGGUODONG########################################
+MAKEFILE_COMPILE_VAR_CALENDAR=BIRD_CALENDAR_CHANGESKIN_WIDGET
+birdcalendarskin=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR_CALENDAR)
+
+MAKEFILE_COMPILE_VAR_CALENDAR_DEFAULT=BIRD_CALENDAR_WIDGET
+birdcalendardefault=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR_CALENDAR_DEFAULT)
+
+if [[ $birdcalendarskin == "yes" ]] && [[ $birdcalendardefault == "yes" ]];then
+  echo error : BIRD_CALENDAR_CHANGESKIN_WIDGET and BIRD_CALENDAR_WIDGET can not set to yes at same time!!Please check your make file!!
+  exit
+fi
+###############################  Calendar widget end   ########################################
+
+#voice mail config,chengting,@20140520,begin
+MAKEFILE_COMPILE_VAR=BIRD_LOAD_CUSTOM_VOICE_MAIL
+voicemailfunc=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+echo BIRD_LOAD_CUSTOM_VOICE_MAIL = $voicemailfunc
+if [[ $voicemailfunc == "yes" ]];then
+  MAKEFILE_COMPILE_VAR=BIRD_LOAD_CUSTOM_VOICE_MAIL_CONFIG
+  voicemailname=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+  filename=bird/voicemail/$voicemailname.xml
+  echo voice mail file: $filename
+  if [[ -e $filename ]];then
+    cp -rf $filename mediatek/frameworks/base/telephony/etc/voicemail-conf.xml
+    echo cp   $filename mediatek/frameworks/base/telephony/etc/voicemail-conf.xml
+  else
+    echo $filename not exit!
+    exit
+  fi
+fi
+
+###### check SAMSUNG one handed operation function usable begin chengting add @20130318########################
+MAKEFILE_COMPILE_VAR_PHONE=BIRD_SAMSUNG_PHONE
+samsungphone=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR_PHONE)
+
+MAKEFILE_COMPILE_VAR_CONTACTS=BIRD_SAMSUNG_CONTACTS
+samsungcontacts=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR_CONTACTS)
+
+MAKEFILE_COMPILE_VAR_OHO=BIRD_ONE_HANDED_OPERATION
+samsungoho=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR_OHO)
+
+if [[ $samsungoho == "yes" ]] && [[ ! $samsungphone == "yes" ]] && [[ ! $samsungcontacts == "yes" ]];then
+	echo error : neither BIRD_SAMSUNG_PHONE nor BIRD_SAMSUNG_CONTACTS is yes,BIRD_ONE_HANDED_OPERATION must not been set to yes!!Please check your make file!!
+	exit
+fi
+###### check SAMSUNG one handed operation function usable end chengting add @20130318########################
+
+###### check  SoundRecorder  or BirdLightSoundRecorder function usable begin shijialiang add @20140211########################
+MAKEFILE_COMPILE_VAR_LIGHT_COLOR_SOUNDRECORDER=BIRD_SEVEN_TWO_LIGHT_COLOR_SOUNDRECORDER
+lightcolorsoundrecorder=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR_LIGHT_COLOR_SOUNDRECORDER)
+
+MAKEFILE_COMPILE_VAR_HEYIUI_SOUNDRECORDER=BIRD_HEYIUI_SOUNDRECORDER
+heyiuisoundrecorder=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR_HEYIUI_SOUNDRECORDER)
+
+if [[ $lightcolorsoundrecorder == "yes" ]] && [[ $heyiuisoundrecorder == "yes" ]];then
+    echo error : BIRD_SEVEN_TWO_LIGHT_COLOR_SOUNDRECORDER and BIRD_HEYIUI_SOUNDRECORDER can not set to yes at same time!!Please check your make file!!
+	exit
+fi
+###### check  SoundRecorder or BirdLightSoundRecorder function usable end shijialiang add @20140211########################
+
+###### check  DeskClock  or BirdLightDeskClock function usable begin shijialiang add @20140313########################
+MAKEFILE_COMPILE_VAR_LIGHT_DESKCLOCK=BIRD_LIGHT_STYLE_CLOCK
+lightdeskclock=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR_LIGHT_DESKCLOCK)
+
+MAKEFILE_COMPILE_VAR_NEWUI_DESKCLOCK=BIRD_NEWUI_DESKCLOCK
+newuideskclock=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR_NEWUI_DESKCLOCK)
+
+if [[ $lightdeskclock == "yes" ]] && [[ $newuideskclock == "yes" ]];then
+    echo error : BIRD_LIGHT_STYLE_CLOCK and BIRD_NEWUI_DESKCLOCK can not set to yes at same time!!Please check your make file!!
+	exit
+fi
+###### check  DeskClock or BirdLightDeskClock function usable end shijialiang add @20140313########################
+
+##################################################################contacts photos begin#######################################################################
+VAR_DOOV_DEFAULT_PHOTO=BIRD_DOOV_DEFAULT_CONTACT_PHOTO
+doovdefautphoto=$(./get_string $MAKEFILE_NAME $VAR_DOOV_DEFAULT_PHOTO)
+
+VAR_DOOV_SYSTEM_PHOTOS=BIRD_DOOV_SYSTEM_CONTACT_PHOTOS
+doovsystemphoto=$(./get_string $MAKEFILE_NAME $VAR_DOOV_SYSTEM_PHOTOS)
+
+VAR_BIRD_CONTACTS_PHOTOS_THEME=BIRD_CONTACTS_PHOTOS_THEME
+contactphotos=$(./get_string $MAKEFILE_NAME $VAR_BIRD_CONTACTS_PHOTOS_THEME)
+
+VAR_BIRD_PHOTO_TRIANGLE=BIRD_QUICK_CONTACT_NO_TRIANGLE
+phototriangle=$(./get_string $MAKEFILE_NAME $VAR_BIRD_PHOTO_TRIANGLE)
+
+VAR_BIRD_PHOTO_NO_SIM_COLOR=BIRD_DEFAULT_PHOTO_NO_SIM_COLOR
+photonosimcolor=$(./get_string $MAKEFILE_NAME $VAR_BIRD_PHOTO_NO_SIM_COLOR)
+
+
+if [[ $contactphotos == "BIRD_CONTACTS_PHOTOS_THEME" ]];then
+  contactphotos="bird_v1"
+fi
+
+if [[ $contactphotos == "vivo" ]] || [[ $contactphotos == "bird_v2_circle" ]];then
+  if [[ $doovdefautphoto != "yes" ]] || [[ $doovsystemphoto != "yes" ]];then
+        echo error: you may need turn on BIRD_DOOV_DEFAULT_CONTACT_PHOTO and BIRD_DOOV_SYSTEM_CONTACT_PHOTOS
+	exit
+  fi
+  if [[ $phototriangle != "yes" ]];then
+  	echo error: you may need turn on BIRD_QUICK_CONTACT_NO_TRIANGLE
+  	exit
+  fi
+else
+  if [[ $phototriangle == "yes" ]];then
+  	echo error: you may need turn off BIRD_QUICK_CONTACT_NO_TRIANGLE
+  	exit
+  fi
+  if [[ $contactphotos == "samsung" ]] || [[ $contactphotos == "release" ]];then
+  	if [[ $doovsystemphoto == "yes" ]] || [[ $doovdefautphoto == "yes" ]];then
+    	echo warning------------if you want use samsung or release photo, you need set BIRD_DOOV_DEFAULT_CONTACT_PHOTO=no and BIRD_DOOV_SYSTEM_CONTACT_PHOTOS=no
+    	exit
+    fi
+  fi
+fi
+  
+if [[ $contactphotos == "vivo" ]];then
+  photopath=bird/contacts_photos/vivo
+  
+elif [[ $contactphotos == "bird_v1" ]];then
+  photopath=bird/contacts_photos/bird_v1
+
+elif [[ $contactphotos == "samsung" ]];then
+  photopath=bird/contacts_photos/samsung
+
+elif [[ $contactphotos == "release" ]];then
+  photopath=bird/contacts_photos/release
+  
+elif [[ $contactphotos == "bird_v2_circle" ]];then
+  photopath=bird/contacts_photos/bird_v2_circle
+fi
+
+if [ ! -e $photopath ];then
+  echo ----- Warning: ----- $photopath not exist, pls check in the directory "bird/contact_photos"
+else
+  echo ===============================start copy contact photos===========================================
+  echo  --------contacts photo path=$photopath
+  if [[ $contactphotos == "samsung" ]] || [[ $contactphotos == "release" ]];then
+  	cp -rf $photopath/SystemUI/drawable-hdpi/*.png frameworks/base/packages/SystemUI/res/drawable-hdpi
+	cp -rf $photopath/chips/drawable-hdpi/*.png frameworks/ex/chips/res/drawable-hdpi
+	cp -rf $photopath/Contacts/drawable-hdpi/*.png packages/apps/Contacts/res/drawable-hdpi
+	cp -rf $photopath/Mms/drawable-hdpi/*.png packages/apps/Mms/res/drawable-hdpi
+	cp -rf $photopath/BirdLightMms/drawable-hdpi/*.png packages/apps/Mms/res/drawable-hdpi
+	cp -rf $photopath/Phone/drawable/*.png packages/apps/Phone/res/drawable
+	cp -rf $photopath/Phone/drawable-hdpi/*.png packages/apps/Phone/res/drawable-hdpi
+		
+  else
+  	
+  	cp -rf $photopath/SystemUI/drawable-mdpi/*.png frameworks/base/packages/SystemUI/res/drawable-mdpi
+  	cp -rf $photopath/SystemUI/drawable-hdpi/*.png frameworks/base/packages/SystemUI/res/drawable-hdpi
+  	cp -rf $photopath/SystemUI/drawable-xhdpi/*.png frameworks/base/packages/SystemUI/res/drawable-xhdpi
+  	
+	cp -rf $photopath/chips/doov/drawable-mdpi/*.png frameworks/ex/chips/doov/drawable-mdpi
+	cp -rf $photopath/chips/doov/drawable-hdpi/*.png frameworks/ex/chips/doov/drawable-hdpi
+	cp -rf $photopath/chips/doov/drawable-xhdpi/*.png frameworks/ex/chips/doov/drawable-xhdpi
+	cp -rf $photopath/chips/drawable-mdpi/*.png frameworks/ex/chips/res/drawable-mdpi
+	cp -rf $photopath/chips/drawable-hdpi/*.png frameworks/ex/chips/res/drawable-hdpi
+	cp -rf $photopath/chips/drawable-xhdpi/*.png frameworks/ex/chips/res/drawable-xhdpi
+	
+	cp -rf $photopath/Contacts/drawable/*.* packages/apps/Contacts/res/drawable
+	cp -rf $photopath/Contacts/drawable-mdpi/*.png packages/apps/Contacts/res/drawable-mdpi
+	cp -rf $photopath/Contacts/drawable-hdpi/*.png packages/apps/Contacts/res/drawable-hdpi
+	cp -rf $photopath/Contacts/drawable-xhdpi/*.png packages/apps/Contacts/res/drawable-xhdpi
+	
+	cp -rf $photopath/Mms/drawable-mdpi/*.png packages/apps/Mms/res/drawable-mdpi
+	cp -rf $photopath/Mms/drawable-hdpi/*.png packages/apps/Mms/res/drawable-hdpi
+	cp -rf $photopath/Mms/drawable-xhdpi/*.png packages/apps/Mms/res/drawable-xhdpi
+	
+	cp -rf $photopath/Mms/drawable-mdpi/*.png packages/apps/BirdLightMms/res/drawable-mdpi
+	cp -rf $photopath/Mms/drawable-hdpi/*.png packages/apps/BirdLightMms/res/drawable-hdpi
+	cp -rf $photopath/Mms/drawable-xhdpi/*.png packages/apps/BirdLightMms/res/drawable-xhdpi
+	
+	cp -rf $photopath/Phone/drawable-mdpi/*.png packages/apps/Phone/res/drawable-mdpi
+	cp -rf $photopath/Phone/drawable-hdpi/*.png packages/apps/Phone/res/drawable-hdpi
+	cp -rf $photopath/Phone/drawable-xhdpi/*.png packages/apps/Phone/res/drawable-xhdpi
+
+  fi
+  
+  photoSizeFile=$photopath/bird_contact_photo_size.xml
+  echo --------using $photoSizeFile
+  cp -rf $photoSizeFile packages/apps/BirdLightMms/res/values/bird_contact_photo_size.xml
+  cp -rf $photoSizeFile packages/apps/Mms/res/values/bird_contact_photo_size.xml
+  cp -rf $photoSizeFile packages/apps/Contacts/res/values/bird_contact_photo_size.xml
+  echo ===============================end copy contact photos===========================================
+fi
+
+##################################################################contacts photos end#######################################################################
+
+###############################[96025], doov dialpad pics by chengting###############
+VAR_DOOV_DIALPAD=BIRD_DOOV_DIALPAD
+doovdialpad=$(./get_string $MAKEFILE_NAME $VAR_DOOV_DIALPAD)
+
+VAR_DOOV_DIALPAD_PIC=BIRD_DOOV_DIALPAD_PIC
+doovdialpadpic=$(./get_string $MAKEFILE_NAME $VAR_DOOV_DIALPAD_PIC)
+
+if [[ $doovdialpad == "yes" ]];then
+dialpadfolder=bird/dialpad/$doovdialpadpic
+if [ -e $dialpadfolder ];then
+   echo using dialpad pictures:$dialpadfolder
+   cp -rf $dialpadfolder/drawable-hdpi/*.png packages/apps/Contacts/res/drawable-hdpi
+else
+   echo no dialpad photos need to copy
+fi
+fi
+
+
+###############################[96025], doov dialpad pics by chengting###############
+VAR_DOOV_DIALPAD=BIRD_DOOV_DIALPAD
+doovdialpad=$(./get_string $MAKEFILE_NAME $VAR_DOOV_DIALPAD)
+
+VAR_DOOV_DIALPAD_PIC=BIRD_DOOV_DIALPAD_PIC
+doovdialpadpic=$(./get_string $MAKEFILE_NAME $VAR_DOOV_DIALPAD_PIC)
+
+if [[ $doovdialpad == "yes" ]];then
+dialpadfolder=bird/dialpad/$doovdialpadpic
+if [ -e $dialpadfolder ];then
+   echo using dialpad pictures:$dialpadfolder
+   cp -rf $dialpadfolder/drawable-hdpi/*.png packages/apps/Contacts/res/drawable-hdpi
+else
+   echo no dialpad photos need to copy
+fi
+fi
+
+###############################[96212],show wallpaper as incall screen bg,chengting,@20130805###############
+VAR_WALLPAPER_AS_CALL_BG=BIRD_WALLPAPER_AS_CALL_BG
+wallpaperascallbg=$(./get_string $MAKEFILE_NAME $VAR_WALLPAPER_AS_CALL_BG)
+
+VAR_DOOV_PHONE=BIRD_DOOV_PHONE_STYLE
+doovphone=$(./get_string $MAKEFILE_NAME $VAR_DOOV_PHONE)
+
+if [[ $wallpaperascallbg == "yes" ]];then
+if [[ $doovphone != "yes" ]];then
+echo error : if you set BIRD_WALLPAPER_AS_CALL_BG=yes,you should set BIRD_DOOV_PHONE_STYLE=yes at the same time
+exit
+fi
+fi
+
+############################### copy settings  logo add by meifangting  start ########################################
+MAKEFILE_COMPILE_VAR=BIRD_DEVICEINFO_LOGO
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+echo BIRD_DEVICEINFO_LOGO=$outbuf
+foldername=bird/settings_logo/$outbuf
+if [ -e $foldername ]; then
+cp $foldername/zzz_logo_display.png packages/apps/Settings/res/drawable/zzz_logo_display.png
+cp $foldername/zzz_logo_display.png packages/apps/Settings/res/drawable-hdpi/zzz_logo_display.png
+fi
+############################### copy settings logo add by meifangting  start ########################################
+
+############################### copy UserManual  data add by meifangting  start ########################################
+MAKEFILE_COMPILE_VAR=BIRD_USERMANUAL_DATA
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == BIRD_USERMANUAL_DATA ]]; then
+
+echo BIRD_USERMANUAL_DATA is undefined	
+# default
+	outbuf=default
+fi
+echo BIRD_USERMANUAL_DATA=$outbuf
+foldername=bird/userbook/$outbuf
+if [ -e $foldername ]; then
+rm -rf packages/apps/UserManual/assets
+cp -rf $foldername/ packages/apps/UserManual/assets
+fi
+############################### copy UserManual data add by meifangting  start ########################################
+
+############################### copy Photo Widget  data add by wangguodong  start ########################################
+MAKEFILE_COMPILE_VAR=BIRD_VIVO_PHOTO_WIDGET_DATA 
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == BIRD_VIVO_PHOTO_WIDGET_DATA ]]; then
+echo BIRD_VIVO_PHOTO_WIDGET_DATA  is undefined	
+# default
+	outbuf=default
+fi
+echo BIRD_VIVO_PHOTO_WIDGET_DATA =$outbuf
+foldername=bird/wallpaper/default_photowidget/$outbuf
+if [ -e $foldername ]; then
+rm -rf packages/apps/Gallery2/res/drawable-hdpi/default0.jpg
+cp -rf $foldername/*.* packages/apps/Gallery2/res/drawable-hdpi
+fi
+###############################  copy Photo Widget  data add by wangguodong  start ########################################
+
+########################## copy custom contacts photo data add by wangguodong  start ########################################
+MAKEFILE_COMPILE_VAR=BIRD_CUSTOM_CONTACTS_PHOTO_DATA
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == BIRD_CUSTOM_CONTACTS_PHOTO_DATA ]]; then
+echo BIRD_CUSTOM_CONTACTS_PHOTO_DATA  is undefined	
+# default
+	outbuf=default
+fi
+echo BIRD_CUSTOM_CONTACTS_PHOTO_DATA =$outbuf
+foldername=bird/contacts/$outbuf
+if [ -e $foldername ]; then
+rm -rf packages/providers/ContactsProvider/res/drawable-hdpi/zzzz_custom_photo.png
+cp -rf $foldername/*.* packages/providers/ContactsProvider/res/drawable-hdpi
+fi
+#########################  copy custom contacts photo  data add by wangguodong  start ########################################
+############################### copy LiveWallPaper config  data add by wangguodong  start ########################################
+MAKEFILE_COMPILE_VAR=BIRD_LIVEWALLPAPER_CUSTOM_SORT_CONFIG
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == BIRD_LIVEWALLPAPER_CUSTOM_SORT_CONFIG ]]; then
+echo BIRD_LIVEWALLPAPER_CUSTOM_SORT_CONFIG is undefined  
+outbuf=default
+fi
+echo BIRD_LIVEWALLPAPER_CUSTOM_SORT_CONFIG=$outbuf
+foldername=bird/wallpaper/LiveWallPaper_Order/$outbuf
+if [ -e $foldername ]; then
+rm -rf packages/wallpapers/LivePicker/assets
+cp -rf $foldername/ packages/wallpapers/LivePicker/assets
+fi
+############################### copy LiveWallPaper config  add by wangguodong  end ########################################
+
+
+############################### framework_wallpaper start ########################################
+MAKEFILE_COMPILE_VAR=BIRD_FRAMEWORK_WALLAPERS
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+chmod 755 bird/build/srcjava/javamk
+bird/build/srcjava/javamk BIRD_FRAMEWORK_WALLAPERS $outbuf
+############################### framework_wallpaper end ########################################
+
+############################### THL setting list drawable ##################################
+MAKEFILE_COMPILE_VAR=THL_SETTING_LIST_DRAWABLE
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+
+if [ -d bird/drawable/$outbuf ]; then
+cp -rf bird/drawable/$outbuf/overscroll_edge.png frameworks/base/core/res/res/drawable-hdpi-960x540/overscroll_edge.png
+cp -rf bird/drawable/$outbuf/overscroll_edge.png frameworks/base/core/res/res/drawable-hdpi/overscroll_edge.png
+cp -rf bird/drawable/$outbuf/overscroll_edge.png frameworks/base/core/res/res/drawable-mdpi/overscroll_edge.png
+
+
+cp -rf bird/drawable/$outbuf/overscroll_glow.png frameworks/base/core/res/res/drawable-hdpi-960x540/overscroll_glow.png
+cp -rf bird/drawable/$outbuf/overscroll_glow.png frameworks/base/core/res/res/drawable-hdpi/overscroll_glow.png
+cp -rf bird/drawable/$outbuf/overscroll_glow.png frameworks/base/core/res/res/drawable-mdpi/overscroll_glow.png
+fi
+#################add by zhouhuaguo 20111117 remove 'CVS' dir in system.img 
+find vendor/mediatek/$PROJECT_NAME -name 'CVS' | xargs -i -t rm -rf {}
+
+##################add by zhuyaozhong 20120504
+chmod 777 mediatek/custom/common/uboot/logo/update
+chmod 777 get_string
+
+##################config bird camera,add by zhuyaozhong 20120524##############################
+echo main sensor config start
+
+MAKEFILE_COMPILE_VAR=BIRD_MAIN_IMGSENSOR
+src_outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+src_hal_folder=bird/imgsensor/${src_outbuf}/hal
+src_kernel_folder=bird/imgsensor/${src_outbuf}/kernel
+
+MAKEFILE_COMPILE_VAR=CUSTOM_HAL_MAIN_IMGSENSOR
+dest_outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+dest_hal_folder=mediatek/custom/common/hal/imgsensor/${dest_outbuf}
+dest_kernel_folder=mediatek/custom/common/kernel/imgsensor/${dest_outbuf}
+
+if [[ $src_outbuf == BIRD_MAIN_IMGSENSOR ]]; then
+echo BIRD_MAIN_IMGSENSOR is undefined
+else
+if [ ! -d $dest_hal_folder ]; then
+echo $dest_hal_folder not exist,pls check in the directory $dest_hal_folder 11111
+exit
+fi
+if [ ! -d $dest_kernel_folder ]; then
+echo $dest_kernel_folder not exist,pls check in the directory $dest_kernel_folder 22222
+exit
+fi
+
+if [ ! -d $src_hal_folder ]; then
+echo $src_hal_folder not exist,pls check in the directory $src_hal_folder
+exit
+fi
+if [ ! -d $src_kernel_folder ]; then
+echo $src_kernel_folder not exist,pls check in the directory $src_kernel_folder
+exit
+fi
+rm -rf mediatek/custom/$PROJECT_NAME/kernel/imgsensor/${dest_outbuf}
+rm -rf mediatek/custom/$PROJECT_NAME/hal/imgsensor/${dest_outbuf}
+rm -rf $dest_hal_folder/*
+rm -rf $dest_kernel_folder/*
+cp -r $src_hal_folder/* $dest_hal_folder
+cp -r $src_kernel_folder/* $dest_kernel_folder
+echo config finished!
+fi
+
+echo main backup sensor config start
+MAKEFILE_COMPILE_VAR=BIRD_MAIN_BACKUP_IMGSENSOR
+src_outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+src_hal_folder=bird/imgsensor/${src_outbuf}/hal
+src_kernel_folder=bird/imgsensor/${src_outbuf}/kernel
+
+
+MAKEFILE_COMPILE_VAR=CUSTOM_HAL_MAIN_BACKUP_IMGSENSOR
+dest_outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+dest_hal_folder=mediatek/custom/common/hal/imgsensor/${dest_outbuf}
+dest_kernel_folder=mediatek/custom/common/kernel/imgsensor/${dest_outbuf}
+
+if [[ $dest_outbuf == CUSTOM_HAL_MAIN_BACKUP_IMGSENSOR ]]; then
+echo CUSTOM_HAL_MAIN_BACKUP_IMGSENSOR is undefined
+else
+if [ ! -d $dest_hal_folder ]; then
+echo $dest_hal_folder not exist,pls check in the directory $dest_hal_folder 33333
+exit
+fi
+if [ ! -d $dest_kernel_folder ]; then
+echo $dest_kernel_folder not exist,pls check in the directory $dest_kernel_folder 44444
+exit
+fi
+if [[ $src_outbuf == BIRD_MAIN_BACKUP_IMGSENSOR ]]; then
+echo BIRD_MAIN_BACKUP_IMGSENSORR is undefined
+else
+if [ ! -d $src_hal_folder ]; then
+echo $src_hal_folder not exist,pls check in the directory $src_hal_folder
+exit
+fi
+if [ ! -d $src_kernel_folder ]; then
+echo $src_kernel_folder not exist,pls check in the directory $src_kernel_folder
+exit
+fi
+rm -rf mediatek/custom/$PROJECT_NAME/kernel/imgsensor/${dest_outbuf}
+rm -rf mediatek/custom/$PROJECT_NAME/hal/imgsensor/${dest_outbuf}
+rm -rf $dest_hal_folder/*
+rm -rf $dest_kernel_folder/*
+cp -r $src_hal_folder/* $dest_hal_folder
+cp -r $src_kernel_folder/* $dest_kernel_folder
+echo config finished!
+fi
+fi
+
+echo main backup sensor config start
+MAKEFILE_COMPILE_VAR=BIRD_MAIN_04_IMGSENSOR
+src_outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+src_hal_folder=bird/imgsensor/${src_outbuf}/hal
+src_kernel_folder=bird/imgsensor/${src_outbuf}/kernel
+
+
+MAKEFILE_COMPILE_VAR=CUSTOM_HAL_04_IMGSENSOR
+dest_outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+dest_hal_folder=mediatek/custom/common/hal/imgsensor/${dest_outbuf}
+dest_kernel_folder=mediatek/custom/common/kernel/imgsensor/${dest_outbuf}
+
+if [[ $dest_outbuf == CUSTOM_HAL_04_IMGSENSOR ]]; then
+echo CUSTOM_HAL_04_IMGSENSOR is undefined
+else
+if [ ! -d $dest_hal_folder ]; then
+echo $dest_hal_folder not exist,pls check in the directory $dest_hal_folder 33333
+exit
+fi
+if [ ! -d $dest_kernel_folder ]; then
+echo $dest_kernel_folder not exist,pls check in the directory $dest_kernel_folder 44444
+exit
+fi
+if [[ $src_outbuf == BIRD_MAIN_04_IMGSENSOR ]]; then
+echo BIRD_MAIN_04_IMGSENSOR is undefined
+else
+if [ ! -d $src_hal_folder ]; then
+echo $src_hal_folder not exist,pls check in the directory $src_hal_folder
+exit
+fi
+if [ ! -d $src_kernel_folder ]; then
+echo $src_kernel_folder not exist,pls check in the directory $src_kernel_folder
+exit
+fi
+rm -rf mediatek/custom/$PROJECT_NAME/kernel/imgsensor/${dest_outbuf}
+rm -rf mediatek/custom/$PROJECT_NAME/hal/imgsensor/${dest_outbuf}
+rm -rf $dest_hal_folder/*
+rm -rf $dest_kernel_folder/*
+cp -r $src_hal_folder/* $dest_hal_folder
+cp -r $src_kernel_folder/* $dest_kernel_folder
+echo config finished!
+fi
+fi
+
+echo sub sensor config start
+
+MAKEFILE_COMPILE_VAR=BIRD_SUB_IMGSENSOR
+src_outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+src_hal_folder=bird/imgsensor/${src_outbuf}/hal
+src_kernel_folder=bird/imgsensor/${src_outbuf}/kernel
+
+
+MAKEFILE_COMPILE_VAR=CUSTOM_HAL_SUB_IMGSENSOR
+dest_outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+dest_hal_folder=mediatek/custom/common/hal/imgsensor/${dest_outbuf}
+dest_kernel_folder=mediatek/custom/common/kernel/imgsensor/${dest_outbuf}
+
+if [[ $src_outbuf == BIRD_SUB_IMGSENSOR ]]; then
+echo BIRD_SUB_IMGSENSORR is undefined
+else
+if [ ! -d $dest_hal_folder ]; then
+echo $dest_hal_folder not exist,pls check in the directory $dest_hal_folder 11111
+exit
+fi
+if [ ! -d $dest_kernel_folder ]; then
+echo $dest_kernel_folder not exist,pls check in the directory $dest_kernel_folder 22222
+exit
+fi
+
+if [ ! -d $src_hal_folder ]; then
+echo $src_hal_folder not exist,pls check in the directory $src_hal_folder
+exit
+fi
+if [ ! -d $src_kernel_folder ]; then
+echo $src_kernel_folder not exist,pls check in the directory $src_kernel_folder
+exit
+fi
+rm -rf mediatek/custom/$PROJECT_NAME/kernel/imgsensor/${dest_outbuf}
+rm -rf mediatek/custom/$PROJECT_NAME/hal/imgsensor/${dest_outbuf}
+rm -rf $dest_hal_folder/*
+rm -rf $dest_kernel_folder/*
+cp -r $src_hal_folder/* $dest_hal_folder
+cp -r $src_kernel_folder/* $dest_kernel_folder
+echo config finished!
+fi
+
+
+echo sub backup sensor config start
+MAKEFILE_COMPILE_VAR=BIRD_SUB_BACKUP_IMGSENSOR
+src_outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+src_hal_folder=bird/imgsensor/${src_outbuf}/hal
+src_kernel_folder=bird/imgsensor/${src_outbuf}/kernel
+
+
+MAKEFILE_COMPILE_VAR=CUSTOM_HAL_SUB_BACKUP_IMGSENSOR
+dest_outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+dest_hal_folder=mediatek/custom/common/hal/imgsensor/${dest_outbuf}
+dest_kernel_folder=mediatek/custom/common/kernel/imgsensor/${dest_outbuf}
+
+if [[ $dest_outbuf == CUSTOM_HAL_SUB_BACKUP_IMGSENSOR ]]; then
+echo CUSTOM_HAL_SUB_BACKUP_IMGSENSOR is undefined
+else
+if [ ! -d $dest_hal_folder ]; then
+echo $dest_hal_folder not exist,pls check in the directory $dest_hal_folder 33333
+exit
+fi
+if [ ! -d $dest_kernel_folder ]; then
+echo $dest_kernel_folder not exist,pls check in the directory $dest_kernel_folder 44444
+exit
+fi
+if [[ $src_outbuf == BIRD_SUB_BACKUP_IMGSENSOR ]]; then
+echo BIRD_SUB_BACKUP_IMGSENSORR is undefined
+else
+if [ ! -d $src_hal_folder ]; then
+echo $src_hal_folder not exist,pls check in the directory $src_hal_folder
+exit
+fi
+if [ ! -d $src_kernel_folder ]; then
+echo $src_kernel_folder not exist,pls check in the directory $src_kernel_folder
+exit
+fi
+rm -rf mediatek/custom/$PROJECT_NAME/kernel/imgsensor/${dest_outbuf}
+rm -rf mediatek/custom/$PROJECT_NAME/hal/imgsensor/${dest_outbuf}
+rm -rf $dest_hal_folder/*
+rm -rf $dest_kernel_folder/*
+cp -r $src_hal_folder/* $dest_hal_folder
+cp -r $src_kernel_folder/* $dest_kernel_folder
+echo config finished!
+fi
+fi
+
+echo 05 backup sensor config start
+MAKEFILE_COMPILE_VAR=BIRD_05_IMGSENSOR
+src_outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+src_hal_folder=bird/imgsensor/${src_outbuf}/hal
+src_kernel_folder=bird/imgsensor/${src_outbuf}/kernel
+
+
+MAKEFILE_COMPILE_VAR=CUSTOM_HAL_05_IMGSENSOR
+dest_outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+dest_hal_folder=mediatek/custom/common/hal/imgsensor/${dest_outbuf}
+dest_kernel_folder=mediatek/custom/common/kernel/imgsensor/${dest_outbuf}
+
+if [[ $dest_outbuf == CUSTOM_HAL_05_IMGSENSOR ]]; then
+echo CUSTOM_HAL_05_IMGSENSOR is undefined
+else
+if [ ! -d $dest_hal_folder ]; then
+echo $dest_hal_folder not exist,pls check in the directory $dest_hal_folder 33333
+exit
+fi
+if [ ! -d $dest_kernel_folder ]; then
+echo $dest_kernel_folder not exist,pls check in the directory $dest_kernel_folder 44444
+exit
+fi
+if [[ $src_outbuf == BIRD_05_IMGSENSOR ]]; then
+echo BIRD_05_IMGSENSOR is undefined
+else
+if [ ! -d $src_hal_folder ]; then
+echo $src_hal_folder not exist,pls check in the directory $src_hal_folder
+exit
+fi
+if [ ! -d $src_kernel_folder ]; then
+echo $src_kernel_folder not exist,pls check in the directory $src_kernel_folder
+exit
+fi
+rm -rf mediatek/custom/$PROJECT_NAME/kernel/imgsensor/${dest_outbuf}
+rm -rf mediatek/custom/$PROJECT_NAME/hal/imgsensor/${dest_outbuf}
+rm -rf $dest_hal_folder/*
+rm -rf $dest_kernel_folder/*
+cp -r $src_hal_folder/* $dest_hal_folder
+cp -r $src_kernel_folder/* $dest_kernel_folder
+echo config finished!
+fi
+fi
+
+echo main lens config start
+
+MAKEFILE_COMPILE_VAR=BIRD_MAIN_LENS
+src_outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+src_hal_folder=bird/lens/${src_outbuf}/hal
+src_kernel_folder=bird/lens/${src_outbuf}/kernel
+
+
+MAKEFILE_COMPILE_VAR=CUSTOM_HAL_MAIN_LENS
+dest_outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+dest_hal_folder=mediatek/custom/common/hal/lens/${dest_outbuf}
+dest_kernel_folder=mediatek/custom/common/kernel/lens/${dest_outbuf}
+
+if [[ $src_outbuf == BIRD_MAIN_LENS ]]; then
+echo BIRD_MAIN_LENS is undefined
+else
+if [ ! -d $dest_hal_folder ]; then
+echo $dest_hal_folder not exist,pls check in the directory $dest_hal_folder 11111
+exit
+fi
+if [ ! -d $dest_kernel_folder ]; then
+echo $dest_kernel_folder not exist,pls check in the directory $dest_kernel_folder 22222
+exit
+fi
+
+if [ ! -d $src_hal_folder ]; then
+echo $src_hal_folder not exist,pls check in the directory $src_hal_folder
+exit
+fi
+if [ ! -d $src_kernel_folder ]; then
+echo $src_kernel_folder not exist,pls check in the directory $src_kernel_folder
+exit
+fi
+rm -rf mediatek/custom/$PROJECT_NAME/kernel/lens/${dest_outbuf}
+rm -rf mediatek/custom/$PROJECT_NAME/hal/lens/${dest_outbuf}
+rm -rf $dest_hal_folder/*
+rm -rf $dest_kernel_folder/*
+cp -r $src_hal_folder/* $dest_hal_folder
+cp -r $src_kernel_folder/* $dest_kernel_folder
+echo config finished!
+fi
+
+
+echo sub lens config start
+
+MAKEFILE_COMPILE_VAR=BIRD_SUB_LENS
+src_outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+src_hal_folder=bird/lens/${src_outbuf}/hal
+src_kernel_folder=bird/lens/${src_outbuf}/kernel
+
+
+MAKEFILE_COMPILE_VAR=CUSTOM_HAL_SUB_LENS
+dest_outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+dest_hal_folder=mediatek/custom/common/hal/lens/${dest_outbuf}
+dest_kernel_folder=mediatek/custom/common/kernel/lens/${dest_outbuf}
+
+if [[ $src_outbuf == BIRD_SUB_LENS ]]; then
+echo BIRD_SUB_LENS is undefined
+else
+if [ ! -d $dest_hal_folder ]; then
+echo $dest_hal_folder not exist,pls check in the directory $dest_hal_folder 11111
+exit
+fi
+if [ ! -d $dest_kernel_folder ]; then
+echo $dest_kernel_folder not exist,pls check in the directory $dest_kernel_folder 22222
+exit
+fi
+
+if [ ! -d $src_hal_folder ]; then
+echo $src_hal_folder not exist,pls check in the directory $src_hal_folder
+exit
+fi
+if [ ! -d $src_kernel_folder ]; then
+echo $src_kernel_folder not exist,pls check in the directory $src_kernel_folder
+exit
+fi
+rm -rf mediatek/custom/$PROJECT_NAME/kernel/lens/${dest_outbuf}
+rm -rf mediatek/custom/$PROJECT_NAME/hal/lens/${dest_outbuf}
+rm -rf $dest_hal_folder/*
+rm -rf $dest_kernel_folder/*
+cp -r $src_hal_folder/* $dest_hal_folder
+cp -r $src_kernel_folder/* $dest_kernel_folder
+echo config finished!
+fi
+
+MAKEFILE_COMPILE_VAR=BIRD_MAIN_IMGSENSOR_ROTATION
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == BIRD_MAIN_IMGSENSOR_ROTATION ]]; then
+echo BIRD_MAIN_IMGSENSOR_ROTATION is undefined
+else
+if [[ $outbuf == "0" ]]; then
+echo BIRD_MAIN_IMGSENSOR_ROTATION = 0 
+elif [[ $outbuf == "90" ]]; then
+echo BIRD_MAIN_IMGSENSOR_ROTATION = 90 
+elif [[ $outbuf == "180" ]]; then
+echo BIRD_MAIN_IMGSENSOR_ROTATION = 180
+elif [[ $outbuf == "270" ]]; then
+echo BIRD_MAIN_IMGSENSOR_ROTATION = 270
+else
+echo BIRD_MAIN_IMGSENSOR_ROTATION define error,the vaule should be 0,90,180,270.
+exit
+fi
+fi
+
+MAKEFILE_COMPILE_VAR=BIRD_SUB_IMGSENSOR_ROTATION
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == BIRD_SUB_IMGSENSOR_ROTATION ]]; then
+echo BIRD_SUB_IMGSENSOR_ROTATION is undefined
+else
+if [[ $outbuf == "0" ]]; then
+echo BIRD_SUB_IMGSENSOR_ROTATION = 0 
+elif [[ $outbuf == "90" ]]; then
+echo BIRD_SUB_IMGSENSOR_ROTATION = 90 
+elif [[ $outbuf == "180" ]]; then
+echo BIRD_SUB_IMGSENSOR_ROTATION = 180
+elif [[ $outbuf == "270" ]]; then
+echo BIRD_SUB_IMGSENSOR_ROTATION = 270
+else
+echo BIRD_SUB_IMGSENSOR_ROTATION define error,the vaule should be 0,90,180,270.
+exit
+fi
+fi
+
+MAKEFILE_COMPILE_VAR=MTK_WEATHER_WIDGET_APP
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "no" ]]; then
+rm -rf vendor/mediatek/$PROJECT_NAME/artifacts/out/target/product/$PROJECT_NAME/system/app/MtkWeatherWidget.apk
+echo rm the apk MtkWeatherWidget
+fi
+
+MAKEFILE_COMPILE_VAR=MTK_WEATHER_PROVIDER_APP
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "no" ]]; then
+rm -rf vendor/mediatek/$PROJECT_NAME/artifacts/out/target/product/$PROJECT_NAME/system/app/MtkWeatherProvider.apk
+echo rm the apk MtkWeatherProvider
+fi
+
+
+
+chmod 755 bird/build/common/target/product/prepack_systemimg.sh		# jiali add 20130225
+chmod 755 bird/build/common/target/product/prepack_userdataimg.sh	# jiali add 20130225
+echo $1 > bird/tool/lastbuildproj.txt #jiali add to record project.mak name for outputBirdFirmwareInfo
+if [[ $ForcePreCheck -eq 1 ]]; then
+# jiali add to pre-check flash config and auto copy fat image
+g++ -o bird/tool/preCheck bird/tool/preCheck.cpp
+chmod 755 bird/tool/preCheck
+bird/tool/preCheck $1
+if [[ $? -ne 0 ]]; then
+exit		# jiali add to stop when check flash fail
+fi
+fi
+
+# For BIRD_LIGHTING_LOCKER BIRD Wang Lei 130529 ADD BEGIN
+MAKEFILE_COMPILE_VAR=BIRD_LIGHTING_LOCKER
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+echo ==================$outbuf==================
+if [[ $outbuf == "yes" ]]; then
+echo ==================BIRD_LIGHTING_LOCKER start copy==================
+	cp -rf bird/BirdLightingLocker/alps/frameworks/base/core/res/* frameworks/base/core/res/
+echo ==================BIRD_LIGHTING_LOCKER end copy==================
+else
+echo ==================BIRD_LIGHTING_LOCKER is not open==================
+fi
+# For BIRD_LIGHTING_LOCKER BIRD Wang Lei 130529 ADD END
+
+############ jiali add 20130524 for customize BOM Type #################################
+# check BOM Flag in PROJECT_NAME.mak to make sure you have configurated BIRD_TOOL_BOM_TYPE
+# because Firmware Upgrade between different BOM type will cause error
+# WARNING: will overwrite CUSTOM_BUILD_VERNO in mediatek/config/$PROJECT_NAME/ProjectConfig.mk
+
+function checkBOMTypeDefine
+{
+  bomtype=$(./get_string $MAKEFILE_NAME CUSTOM_BUILD_VERNO)
+  echo CUSTOM_BUILD_VERNO = $bomtype
+  if [ $bomtype != EDGE -a $bomtype != WCDMA -a $bomtype != TD -a $bomtype != MEDGE -a $bomtype != MWCDMA -a $bomtype != MTD ]; then
+    bomtype=
+    echo "ConfigError: in $MAKEFILE_NAME, CUSTOM_BUILD_VERNO must be defined as EDGE, WCDMA or TD, according to the BOM Type"
+    exit
+  fi
+}
+
+function CUSTOM_BUILD_VERNO_add_Version
+{
+  sed -i "/CUSTOM_BUILD_VERNO/c\\CUSTOM_BUILD_VERNO = V1_$bomtype" mediatek/config/$PROJECT_NAME/ProjectConfig.mk
+  sed -n '/CUSTOM_BUILD_VERNO/p' mediatek/config/$PROJECT_NAME/ProjectConfig.mk
+}
+
+checkBOMTypeDefine
+
+############################### fota version check begin ########################################
+if [[ $2 == "new" ]]; then
+if [[ $3 == "" ]]; then
+fota=$(./get_string $MAKEFILE_NAME ADUPS_FOTA_SUPPORT)
+if [[ $fota == "yes" ]]; then
+    birdVerno=$(./get_string $MAKEFILE_NAME BIRD_EM_VERNO)
+    echo "birdVerno=$birdVerno"
+    if [[ $birdVerno == "BIRD_EM_VERNO" ]]; then
+    echo "Error: BIRD_EM_VERNO must be defined when open ADUPS_FOTA_SUPPORT!"
+    exit
+    fi
+fi
+fi
+fi
+############################### fota version check end ########################################
+
+############################### build project ########################################
+if [[ $2 == "new" ]] && [[ $3 == "" ]]; then
+  checkSoftwareVersionLength
+elif [[ $2 == "r" ]] && [[ $3 == "dr" ]] && [[ $4 == "" ]]; then
+  checkSoftwareVersionLength
+elif [[ $2 == "r" ]] && [[ $3 == "android" ]] && [[ $4 == "" ]]; then
+  checkSoftwareVersionLength
+fi
+
+#add by zhuyaozhong 20110824
+if [[ $2 == "eng" ]]; then
+if [[ $3 == "new" ]]; then
+if [[ $4 == "" ]]; then
+if [ -d out ]; then
+echo deleting out directory,please wait ...
+rm -r out
+fi
+./makeMtk $PROJECT_NAME update-api
+fi
+fi
+else
+if [[ $2 == "new" ]]; then
+if [[ $3 == "" ]]; then
+if [ -d out ]; then
+echo deleting out directory,please wait ...
+rm -r out
+fi
+./makeMtk -opt=TARGET_BUILD_VARIANT=user $PROJECT_NAME update-api
+fi
+fi
+fi
+
+rm -rf mediatek/config/$PROJECT_NAME/ProjectConfig.mk
+cp -r $MAKEFILE_NAME mediatek/config/$PROJECT_NAME/ProjectConfig.mk
+CUSTOM_BUILD_VERNO_add_Version # jiali add for BOM Type
+
+echo
+if  [[ $2 == "eng" ]]; then
+echo Note: ================ compile at eng mode =================
+./makeMtk $PROJECT_NAME $3 $4 $5 $6 $7 $8
+else
+echo Note: ================ compile at user mode =================
+./makeMtk -opt=TARGET_BUILD_VARIANT=user  $PROJECT_NAME $2 $3 $4 $5 $6 $7
+fi
+
+#jiali add for rename and delete bin files 20130114
+#delete files (no need any more)
+rm -rf out/target/product/$PROJECT_NAME/android-info.txt out/target/product/$PROJECT_NAME/clean_steps.mk out/target/product/$PROJECT_NAME/factory.ini
+rm -rf out/target/product/$PROJECT_NAME/installed-files.txt out/target/product/$PROJECT_NAME/ramdisk-recovery.img
+rm -rf out/target/product/$PROJECT_NAME/previous_build_config.mk out/target/product/$PROJECT_NAME/kernel_bird*.bin out/target/product/$PROJECT_NAME/ramdisk.img
+#rename filenames (contains company info)
+if [ -e out/target/product/$PROJECT_NAME/BirdFirmwareInfo.img ]; then
+mv out/target/product/$PROJECT_NAME/BirdFirmwareInfo.img out/target/product/$PROJECT_NAME/info.img
+fi
+if [ -e out/target/product/$PROJECT_NAME/preloader_bird*.bin ]; then
+mv out/target/product/$PROJECT_NAME/preloader_bird*.bin out/target/product/$PROJECT_NAME/preloader.bin
+fi
+sed -i 's/preloader_bird72_wet_a_jb3/preloader/' out/target/product/$PROJECT_NAME/MT6572_Android_scatter.txt
+if [ -e out/target/product/$PROJECT_NAME/uboot_bird*.bin ]; then
+mv out/target/product/$PROJECT_NAME/uboot_bird*.bin out/target/product/$PROJECT_NAME/uboot.bin
+fi
+rm -rf out/target/product/$PROJECT_NAME/ubifs.android.img out/target/product/$PROJECT_NAME/ubifs.usrdata.img
+
+#jiali add end
+if [[ $ForcePreCheck -eq 1 ]]; then
+if [ -e bird/tool/fat_image_path.txt ]; then
+cp `head -1 bird/tool/fat_image_path.txt` out/target/product/$PROJECT_NAME/ #jiali add to auto copy FAT image
+fi
+fi
+
+#jiali add copy fat image
+MAKEFILE_COMPILE_VAR=BIRD_SPECIAL_FAT_IMAGE_ON
+outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+if [[ $outbuf == "yes" ]]; then
+	MAKEFILE_COMPILE_VAR=BIRD_SPECIAL_FAT_IMAGE_PATH
+	outbuf=$(./get_string $MAKEFILE_NAME $MAKEFILE_COMPILE_VAR)
+	rm -rf out/target/product/$PROJECT_NAME/fat*.img
+	echo copy fat image at $outbuf
+	cp -rf $outbuf out/target/product/$PROJECT_NAME/
+fi
+
+#jiali add begin for auto copy APDB and BPLG modem database for SN Writer 2013-07-17
+rm -rf out/target/product/$PROJECT_NAME/APDB* out/target/product/$PROJECT_NAME/BPLG*
+apdbfile=`ls mediatek/cgen/APDB_*`
+apdbfile=${apdbfile%mediatek/*}
+apdbfile=${apdbfile:0:${#apdbfile}-1}
+echo apdbfile=$apdbfile
+outbuf=$(./get_string $MAKEFILE_NAME CUSTOM_MODEM)
+echo bplgfile=`ls mediatek/custom/common/modem/$outbuf/BPLG*`
+if [ -e $apdbfile ]; then
+	cp $apdbfile out/target/product/$PROJECT_NAME/
+	echo auto copy APDB succeed!
+else
+	echo auto copy APDB Failed! Not exist file mediatek/cgen/APDB_*
+fi
+if [ -e mediatek/custom/common/modem/$outbuf/BPLG* ]; then
+	cp mediatek/custom/common/modem/$outbuf/BPLG* out/target/product/$PROJECT_NAME/
+	echo auto copy BPLG succeed!
+else
+	echo auto copy BPLG Failed! Not exist file mediatek/custom/common/modem/$outbuf/BPLG*
+fi
+#jiali add end for auto copy APDB and BPLG modem database for SN Writer 2013-07-17
+
+#jiali add begin for 72 support download FAT Image
+outbuf=`grep -ni 'partition_name: FAT' out/target/product/bird72_wet_a_jb3/MT6572_Android_scatter.txt`
+if [[ -n $outbuf ]]; then
+	outbuf=${outbuf%%:*}
+	outbuf=$(($outbuf+1))
+	sed -i "${outbuf}s/NONE/fat_spare.img/" out/target/product/bird72_wet_a_jb3/MT6572_Android_scatter.txt
+fi
+#jiali add end for 72 support download FAT Image
